@@ -19,7 +19,7 @@ To facilitate feedback, every section is tagged with a confidence level:
 ## 1. Introduction & Philosophy
 **[STABLE]**
 
-ENIGMA (Epistemic Negotiation Interface for Gentchen Manifested Abstractions) is not a language in the traditional sense; it is a **semantic substrate**. It is designed to solve the "Ship of Theseus" problem in software: allowing a system to replace its components, semantics, and even its underlying runtime without losing its identity.
+ENIGMA (Epistemic Negotiation Interface for Gentzen Manifested Abstractions) is not a language in the traditional sense; it is a **semantic substrate**. It is designed to solve the "Ship of Theseus" problem in software: allowing a system to replace its components, semantics, and even its underlying runtime without losing its identity.
 
 ### 1.1 Core Philosophy
 *   **Everything is a Negotiation**: There are no "function calls," only negotiations between Manifests.
