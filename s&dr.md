@@ -1,5 +1,5 @@
 # The ENIGMA Specification & Design Rationale
-**Version:** 0.0.3 (Pre-Release)
+**Version:** 0.0.4 (Pre-Release)
 **Authors:** Z_Z (MegadronA03)
 **Status:** Draft
 
@@ -105,9 +105,9 @@ The global environment and API container. It holds `KES` and the dispatch loop.
 
 ### 4.2 KES (Knowledge Environment State)
 The memory manager. It implements a **Tree-based Scope Model** using a linear stack with shadowing.
-*   **Layers**: Scopes/Stack frames. Can be `Dynamic`, `Grounded`, or `Isolated`.
+*   **Layers**: Scopes/Stack frames. Can be `Dynamic`, `Grounded`, or `Isolated`. It's a transactional boundary in the Knowledge Environment (KES) that isolates state mutations. It acts as a "Sheet of Glass" that defines visibility: you can see the past (Dynamic), ignore the past (Isolated), or anchor to a specific past (Grounded).
 *   **Bindings & Labels**: The addressable memory. `Bindings` are numeric IDs; `Labels` are string names.
-*   **Relevance**: The mechanism determining which layers are currently visible.
+*   **Relevance**: The mechanism determining visibility and order of layers in current context.
 
 **Rationale**: Why not a standard stack?
 > A standard stack implies linear execution. ENIGMA needs to support branching context (grounding) and sandboxing (isolation) natively. KES allows the execution to "jump" back to an ancestor context or cut off access to it, enabling structural safety.
