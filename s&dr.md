@@ -1,5 +1,5 @@
 # The ENIGMA Specification & Design Rationale
-**Version:** 0.0.1 (Pre-Release)
+**Version:** 0.0.2 (Pre-Release)
 **Authors:** Z_Z (MegadronA03)
 **Status:** Draft
 
@@ -13,6 +13,41 @@ To facilitate feedback, every section is tagged with a confidence level:
 *   **[FLUID]**: Functionality works but implementation details or syntax might change.
 *   **[THEORETICAL]**: Planned behavior that is not fully implemented or is currently a prototype.
 *   **[UNKNOWN]**: Area of the design that needs significant research or external input.
+
+---
+
+## Term relatives 
+
+| Terms | Closest relatives |
+| :--- | :--- |
+| **Substrate** | A virtual machine that runs inside your code. |
+| **Manifest** | An Object (Data + Code). |
+| **Protocol** | An Interface / Contract. |
+| **Negotiation** | A Function Call (but dynamic). |
+| **Layer** | A Scope / Stack Frame (that you can save). |
+| **KES** | The Memory Manager. |
+
+---
+
+## Implementation Status
+
+What is passed off to the Host (Lua): 
+*   **Physics**: Raw computation, memory allocation, and Garbage Collection. 
+*   **Primitives**: Hash tables, arrays, and basic IO. ENIGMA wraps these, it doesn't rebuild them from scratch. 
+
+What is handled by ENIGMA (The Implementation): 
+*   **Semantics**: How objects interact (Negotiation/Protocols). 
+*   **Structure**: How scope and memory are organized (The Layer Tree/KES). 
+    Safety: Authority containment and isolation logic. 
+
+What I'm working on now (The "Edge Cases"):
+You asked what it does and doesn't do - currently, the biggest challenge is Label handling in Sequences. 
+
+In a standard language, x = 1; y = x is trivial. In ENIGMA, because Scope is a transactional Layer, I have to strictly define when a label becomes visible. 
+*   **The Struggle**: I am currently refining how pending_labels are buffered during a Sequence iteration.
+*   **The Goal**: I need to ensure that a label defined in step 1 is active and resolvable in step 2, but strictly contained if the Sequence fails or forks. It’s a battle between 'Immediate Visibility' (ease of use) and 'Transactional Hygiene' (safety).
+
+So, the Implementation handles the structure of computation, but the 'usability' of that structure (like how variables flow) is the active design work.
 
 ---
 
