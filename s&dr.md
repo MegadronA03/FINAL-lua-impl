@@ -54,9 +54,34 @@ So, the Implementation handles the structure of computation, but the 'usability'
 ## 1. Introduction & Philosophy
 **[STABLE]**
 
+### 1.1 Motivation & Problem Statement
+
+#### 1.1.1 The Problem
+After trying different hosts (languages/platforms), I created various pieces of software and tooling that inevitably got stuck to their respective environments. This forced me to either write fragile glue code or outright rewrite the logic in a different host. The "Write Once, Run Anywhere" promise is broken by the friction of language boundaries.
+
+#### 1.1.2 The Goal
+Create a flexible standard that can use any host to replicate the logic of interactions between foreign concepts.
+*   The user defines/loads concepts.
+*   It is the host expression's job to define *what* a foreign concept is (implementation), not the standard's job.
+*   The standard simply provides the rules for *how* these concepts interact.
+
+#### 1.1.3 How It Operates
+Think of ENIGMA as **"Bash for uniformly interfacing with any host."**
+It treats host code snippets as "Authority" (capabilities). Using abstractions (Protocols), it defines interactions between these Authorities—either by executing them directly or by constructing a program structure.
+
+#### 1.1.4 What This Theoretically Enables
+The parser itself is just another Manifest generator that ENIGMA evaluates. This means the system is not tied to its own syntax.
+*   **Syntax Agnosticism**: It allows for seamless interoperation between different host expressions.
+*   **Logic Extraction**: If you provide ENIGMA with an Authority definition (how to run it), it can theoretically retrieve the raw logic execution on a completely different host.
+
+#### 1.1.5 Scope
+The scope is strictly **"Common Grounds for Host Operation."** ENIGMA does not define the physics (implementation); it defines the laws (semantics).
+
+## 1.2 What this is
+
 ENIGMA (Epistemic Negotiation Interface for Gentzen Manifested Abstractions) is not a language in the traditional sense; it is a **semantic substrate**. It is designed to solve the "Ship of Theseus" problem in software: allowing a system to replace its components, semantics, and even its underlying runtime without losing its identity.
 
-### 1.1 Core Philosophy
+### 1.2.1 Core Philosophy
 *   **Everything is a Negotiation**: There are no "function calls," only negotiations between Manifests.
 *   **Context is a Resource**: State is not global; it is layered. Access to context is a capability, not a right.
 *   **Transactional Evolution**: The system is designed to be append-only and self-redefining.
