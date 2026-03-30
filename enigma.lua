@@ -190,7 +190,7 @@ return (function ()
                             local tuple_p = self.KES.bindings[self.KES.bindings.Tuple.records[self.host_layer]].records[self.host_layer]
                             local hanc = self.KES:resolve(protocol.unhandled)
                             if self.capcheck(artifact_p, hanc) then
-                                return hanc.state.data.artifact(lterm, rterm)
+                                return hanc.state.artifact(lterm, rterm)
                             else return self:dispatch(hanc, {
                                 protocol = tuple_p.state,
                                 state = {items = {lterm, rterm}, labels = {"self", "arg"}}}, hanc.protocol) end end-- needs some standartization on how this should be passed around, don't like hardcoded "self" and "arg"
@@ -200,7 +200,7 @@ return (function ()
                             local unhc = self.KES:resolve(protocol.unhandled)
                             local fabk
                             if self.capcheck(artifact_p, unhc) then
-                                fabk = unhc.state.data.artifact(lterm)
+                                fabk = unhc.state.artifact(lterm)
                             else fabk = self:dispatch(unhc, lterm, unhc.protocol) end
                             return self:dispatch(fabk, rterm, fabk.protocol)
                         else
@@ -213,7 +213,7 @@ return (function ()
                             local artifact_p = self.KES.bindings[self.KES.bindings.Artifact.records[self.host_layer]].records[self.host_layer]
                             local unhc = self.KES:resolve(protocol.unhandled)
                             if self.capcheck(artifact_p, unhc) then
-                                return unhc.state.data.artifact(lterm)
+                                return unhc.state.artifact(lterm)
                             else return self:dispatch(unhc, lterm, unhc.protocol) end
                         else
                             return lterm end end
@@ -221,12 +221,11 @@ return (function ()
                     if lterm.protocol then return self:dispatch(lterm, rterm, lterm.protocol) else
                         if rterm then return {
                                 protocol = self.KES.bindings[self.KES.bindings.Error.records[self.host_layer]].records[self.host_layer].state,
-                                state = {desc = "ENIMGA: FLESH:dispatch Error: missing protocol"}
+                                state = {desc = "ENIMGA: FLESH:dispatch Error: missing protocol"}}
                         else
                             return lterm end end end 
             end,
             --env methods
-            --artifact = function (self, arg) end,
             reset = function (self) end, -- inits defaults and other stuff
         }
 
@@ -244,15 +243,27 @@ return (function ()
         -- on unhandled it's just self (tables, not KES IDs)
         -- the return should return Manifest (tables, not KES IDs)
 
-        local artifact_chunk = [[return function (_, arg) -- _, {chunk/code, outer, env, mode}
-            if type(arg) ~= "table" then
-                arg = FLESH.export(arg) end
-            local chunk, outer, env, mode = (lns.unpack or lns.table.unpack)(arg) -- TODO: convert passed in manifests into values
-            local ref = FLESH.KES:write_entry()
-            local exref = FLESH.KES:write_entry() -- I added so KES:write_entry will return where write happened
-            local chunkname = "FLESH.KES:bindings["..tostring(ref).."].records["..tostring(FLESH.KES:get_context()).."]"
-            outer = outer or false
-            mode = mode or "t"
+        --I need to make things clear
+        --Manifest can only store references to stuff inside it's state
+        --meaning if it's related to user modifyable storage, we store KES label or binding (refer to Tuple)
+        --if something different getting stored, it's host resources, that user can only interact with it via protocol
+        --which means yes, state itself is opaque host resource
+
+
+        FLESH.make = {}
+
+        local a_stubs = {FLESH.KES:write_entry(),FLESH.KES:write_entry(),FLESH.KES:write_entry(),FLESH.KES:write_entry()}
+        FLESH.KES:write_entry("Artifact", { -- Artifact for handling external authority
+            protocol = {
+                responders = {
+                    ["in"] = {handled = a_stubs[1]},
+                    ["="] = {handled = a_stubs[2]}}},
+            state = {
+                responders = {
+                    reload = {unhandled = a_stubs[3]}},
+                handled = a_stubs[4]}})
+
+        FLESH.make.Artifact = function (chunk, chunkname, mode, env)
             local plfmt = { __index = function (s,i) -- we make lazy fetch on Artifact, because we have a metacircular situation
                 local v = rawget(s,i)
                 if i ~= "protocol" then return v end
@@ -261,48 +272,23 @@ return (function ()
                     rawset(s,i,v) 
                     setmetatable(s, nil) end 
                 return v end}
-            local a, e
-            if (chunk.chdef and chunk.artifact) then -- we skip load process for already loaded chunk
-                a = chunk.artifact
-                chunk = chunk.chdef -- must be passed, so FINAL can describle itself with host
-            elseif (type(chunk) == "string")
-                a, e = lns.load(chunk, chunkname, mode, {lns = outer and lns or nil, FLESH = FLESH, env = env}) 
-                if (e) then
-                    local em = {
-                        protocol = "Error", 
-                        state = {desc = exref}}
-                    setmetatable(em, plfmt)
-                    FLESH.KES:write_entry(exref, {external = "Artifact: Failed to create due to host error: "..e}) -- gonna need string, or better yet, make Error adapt to availabale conditions
-                    FLESH.KES:write_entry(ref, em)
-                    return ref end
-                a = a() end
-            FLESH.KES:write_entry(exref, {external = {
-                    artifact = a,
-                    lua_chunk = chunk,
-                    lua_chunkname = chunkname,
-                    lua_mode = mode,
-                    lua_outer = outer,
-                    lua_env = env
-            }})
+            chunkname = chunkname or "chunk"
+            local a, e = load(chunk, "FINAL:"..chunkname, mode, env) 
+            if (a) then a, e = pcall(a) end
+            if (e) then
+                local em = {
+                    protocol = "Error", 
+                    state = {desc = "Artifact: Failed to load "..chunkname.." due to host error: "..e}}
+                setmetatable(em, plfmt)
+                return em end
             local am = {
-                protocol = "Artifact",
+                protocol = FLESH.KES.bindings[FLESH.KES.bindings.Artifact.records[FLESH.host_layer] ].records[FLESH.host_layer].state,
                 state = {
-                    data = exref, -- exref about to be removed
-                    def_context = FLESH.KES:get_context()}}
-            setmetatable(am, plfmt)
-            FLESH.KES:write_entry(ref, am)
-            return ref end]]
-
-        local raw_artifact = (function () 
-            local ref = FLESH.KES:write_entry()
-            local chunkname = "FLESH.KES:bindings["..tostring(ref).."].records["..tostring(FLESH.KES:get_context()).."]"
-            local a, e = load(artifact_chunk, chunkname, "t", {lns = _ENV, FLESH = FLESH})
-            if (e) then -- library side fail - we panic
-                error(e, 2) end
-            return a() end)()
-        FLESH.artifact = function (chunk, outer, env, mode)
-            return raw_artifact(nil, {chunk = chunk, outer = outer or true, env = env, mode = mode}) end
-        local artifact_manifest = FLESH.artifact({chdef = artifact_chunk, artifact = raw_artifact}, true)
+                    chunk = chunk,
+                    chunkname = chunkname,
+                    mode = mode,
+                    env = env,
+                    artifact = a}} end
 
         FLESH.capcheck = function(self, arg)
             arg = FLESH:dispatch(arg, nil, arg.protocol)
@@ -315,46 +301,41 @@ return (function ()
             return true end
 
         --common between protocol manifests
-        local capability_check = FLESH.artifact([[return function (self, arg)
-            return FLESH.capcheck(self, arg) and FLESH.KES:resolve("true") or FLESH.KES:resolve("false") end]])
+        local capability_check = FLESH.KES:write_entry(a_stubs[1], FLESH.make.Artifact([[return function (self, arg)
+            return FLESH.capcheck(self, arg) and FLESH.KES:resolve("true") or FLESH.KES:resolve("false") end]], "capcheck"))
+
+        FLESH.KES:write_entry(a_stubs[2], FLESH.make.Artifact([[return function (self, arg) end]])) -- should make artifact creation off state, table, Tuple and string
+        FLESH.KES:write_entry(a_stubs[3], FLESH.make.Artifact([[return function (self)
+            return FLESH.make.Artifact(self.state.chunk, self.state.chunkname, self.state.mode, self.state.env) end]]))
+        FLESH.KES:write_entry(a_stubs[4], FLESH.make.Artifact([[return function(self, arg)
+            local tunp = unpack or table.unpack
+            return self.state.artifact(tunp(arg)) end]]))
+
+        local p_artifact = function (...) return FLESH.KES:write_entry(nil, FLESH.make.Artifact(...)) end
 
         local host_name = FLESH.KES:write_entry() -- we reserve space for the host name 
 
         FLESH.KES:write_entry("Native", { -- should represent state during introspection, to make it hostile
             protocol = {
-                is = {handled = capability_check},
-                ["="] = nil}, -- generated by host, can't be constructed directly
+                ["in"] = {handled = capability_check}},
             state = {
                 responder = {
                     name = {unhandled = host_name}}}}) -- it's later constructed a string with "Lua 5.5"
 
-        FLESH.KES:write_entry("Artifact", { -- Artifact for handling external authority
-            protocol = {
-                is = {handled = capability_check},
-                ["="] = artifact_manifest},
-            state = {
-                responders = {
-                    reload = {unhandled = FLESH.artifact([[return function (self)
-                        local adesc = self.state.data
-                        return FLESH.KES:resolve(FLESH.artifact(adesc.lua_chunk, adesc.lua_outer, adesc.lua_env, adesc.lua_mode)) end]])}},
-                handled = FLESH.artifact([[return function(self, arg)
-                    local tunp = lns.unpack or lns.table.unpack
-                    return self.state.data.artifact(tunp(arg)) end]])}})
-
         FLESH.KES:write_entry("Error", { -- Error "as value"
             protocol = {
-                is = {handled = capability_check},
-                ["="] = {handled = FLESH.artifact([[]])}},
+                ["in"] = {handled = capability_check},
+                ["="] = {handled = p_artifact([[]])}},
             state = {
                 responders = {
-                    name = {unhandled = FLESH.artifact([[]])}, 
-                    desc = {unhandled = FLESH.artifact([[return function (self)
+                    name = {unhandled = p_artifact([[]])}, 
+                    desc = {unhandled = p_artifact([[return function (self)
                         return { -- UNFINISHED
                             protocol = FLESH.KES:resolve("String").state,
                             state = tostring(self.state.desc)}
                     end]])}, 
-                    caller = {unhandled = FLESH.artifact([[]])},
-                    trace = {unhandled = FLESH.artifact([[]])},
+                    caller = {unhandled = p_artifact([[]])},
+                    trace = {unhandled = p_artifact([[]])},
                 },    
 
             }
@@ -364,7 +345,7 @@ return (function ()
             protocol = {},
             state = {
                 responders = {
-                    t_source = {unhandled = FLESH.artifact([[]])},
+                    t_source = {unhandled = p_artifact([[]])},
                     t_id = {unhandled = nil},
                     t_position = {unhandled = nil},
                 },
@@ -373,7 +354,7 @@ return (function ()
 
         -- no implicit conversions, this is only between this specific implementation
         local make_trans_op = function (op, bool)
-            return FLESH.artifact([[return function (self, arg)
+            return p_artifact([[return function (self, arg)
                 if (FLESH.capcheck({state = self.protocol},arg)) then
                     return {
                         protocol = self.protocol,
@@ -384,14 +365,14 @@ return (function ()
             end]])
         end
         local make_trans = function (trans)
-            return FLESH.artifact([[return function (self)
+            return p_artifact([[return function (self)
                 return {
                     protocol = self.protocol,
                     state = (]]..trans..[[(self.state))}
             end]])
         end
         local make_host_res_init = function (host_type)
-            return FLESH.artifact([[return function (self, arg)
+            return p_artifact([[return function (self, arg)
                 -- wrap host resource manifest
                 if (FLESH.capcheck(self,arg)) then return arg end -- literal uses same protocol, so we just passing
                 if (type(arg) == "]]..host_type..[[") then return {protocol = self.state,state = arg}} end
@@ -399,197 +380,195 @@ return (function ()
             end]])
         end
 
-        local host_types = {
-            protocol = FLESH.KES:resolve("Tuple").state,
-            state = {
-                labels = table_invert({"nil","boolean","number","string","userdata","function","thread","table","unknown"}),
-                items = {
-                    FLESH.KES:write_entry(nil, {protocol = {},state = {}}), -- nil
-                    FLESH.KES:write_entry(nil, {protocol = { -- boolean
-                        responders = {
-                            is = {handled = capability_check},
-                            ["="] = make_host_res_init("boolean")}},
-                    state = {
-                        responders = {
-                            ["|"] = {handled = make_trans_op("or")},
-                            ["&"] = {handled = make_trans_op("and")},
-                            ["~"] = {unhandled = make_trans("not")},
-                            ["=="] = {handled = make_trans_op("==")},
-                            ["~="] = {handled = make_trans_op("~=")},
-                        }
-                    }}),
-                    FLESH.KES:write_entry(nil, {protocol = { -- number
-                        responders = {
-                            is = {handled = capability_check},
-                            ["="] = make_host_res_init("number")}},
-                    state = {
-                        responders = {
-                            ["+"] = {handled = make_trans_op("+")},
-                            ["-"] = {handled = make_trans_op("-")},
-                            ["*"] = {handled = make_trans_op("*")},
-                            ["/"] = {handled = make_trans_op("/")},
-                            ["%"] = {handled = make_trans_op("%")},
-                            ["^"] = {handled = make_trans_op("^")},
-                            ["|"] = {handled = make_trans_op("|")},
-                            ["&"] = {handled = make_trans_op("&")},
-                            ["<<"] = {handled = make_trans_op("<<")},
-                            [">>"] = {handled = make_trans_op(">>")},
-                            ["=="] = {handled = make_trans_op("==")},
-                            ["~="] = {handled = make_trans_op("~=")},
-                            ["<"] = {handled = make_trans_op("<")},
-                            [">"] = {handled = make_trans_op(">")},
-                            ["<="] = {handled = make_trans_op("<=")},
-                            [">="] = {handled = make_trans_op(">=")},
-                            abs = {unhandled = make_trans("math.abs")},
-                            acos = {unhandled = make_trans("math.acos")},
-                            asin = {unhandled = make_trans("math.asin")},
-                            atan = {unhandled = make_trans("math.atan")},
-                            ceil = {unhandled = make_trans("math.ceil")},
-                            cos = {unhandled = make_trans("math.cos")},
-                            deg = {unhandled = make_trans("math.deg")},
-                            exp = {unhandled = make_trans("math.exp")},
-                            floor = {unhandled = make_trans("math.floor")},
-                            fmod = {unhandled = make_trans("math.fmod")},
-                            frexp = {unhandled = make_trans("math.frexp")},
-                            huge = {unhandled = make_trans("math.huge")},  -- const
-                            ldexp = {unhandled = nil}, -- math.ldexp (m, e) - Returns m2e, where e is an integer.
-                            log = {unhandled = make_trans("math.log")},
-                            max = {unhandled = make_trans("math.max")},
-                            maxinteger = {unhandled = make_trans("math.maxinteger")}, -- const
-                            min = {unhandled = make_trans("math.min")},
-                            mininteger = {unhandled = make_trans("math.mininteger")}, -- const
-                            modf = {unhandled = nil}, -- Returns the integral part of x and the fractional part of x. Its second result is always a float.
-                            pi = {unhandled = make_trans("math.pi")}, -- const
-                            rad = {unhandled = make_trans("math.rad")},
-                            --random = {unhandled = make_trans("math.random")},
-                            --randomseed = {handled = nil}, -- [x, [y]]
-                            sin = {unhandled = make_trans("math.sin")},
-                            sqrt = {unhandled = make_trans("math.sqrt")},
-                            tan = {unhandled = make_trans("math.tan")},
-                            tointeger = {unhandled = make_trans("math.tointeger")},
-                            type = {unhandled = nil}, -- returns "integer" or "float" or fail
-                            ult = {handled = nil}, -- math.ult (m, n)
-                            to = {
-                                responders = {
-                                    string = {unhandled = FLESH.artifact([[return function (self)
-                                        return { -- UNFINISHED
-                                            protocol = FLESH.KES:resolve(host_types.state.items[host_types.state.labels.string]).state,
-                                            state = tostring(self.state)}
-                                    end]])}}}
-                        }
-                    }}),
-                    FLESH.KES:write_entry(nil, {protocol = { -- string
-                        responders = {
-                            is = {handled = capability_check},
-                            ["="] = make_host_res_init("string")}},
-                    state = {
-                        responders = {
-                            ["+"] = {handled = make_trans_op("..")},
-                            ["=="] = {handled = make_trans_op("==")},
-                            ["~="] = {handled = make_trans_op("~=")},
-                            format = {handled = FLESH.artifact([[return function (self, arg)
-                                -- check if arg is tuple and go on
-                            ]])},
-                            size = {unhandled = make_trans("string.len")},
-                            lower = {unhandled = make_trans("string.lower")},
-                            upper = {unhandled = make_trans("string.upper")},
-                            reverse = {unhandled = make_trans("string.reverse")},
-                            to = {
-                                responders = {
-                                    number = {unhandled = FLESH.artifact([[return function (self)
-                                        return {
-                                            protocol = FLESH.KES:resolve(host_types.state.items[host_types.state.labels.number]).state,
-                                            state = tonumber(self.state)}
-                                    end]])}}}
-                        }
-                    }}),
-                    FLESH.KES:write_entry(nil, {protocol = { -- userdata UNFINISHED (lua can operate with it)
-                        responders = {
-                        is = {handled = capability_check},
-                        ["="] = make_host_res_init("userdata")}},
-                    state = {}}),
-                    FLESH.KES:write_entry(nil, {protocol = { -- function
-                        responders = {
-                        is = {handled = capability_check},
-                        ["="] = make_host_res_init("function")}},
-                    state = {
-                        handled = FLESH.artifact([[return function (self, arg)
-                            local tuple_p
-                            self.state
-                        end]])
-                    }}),
-                    FLESH.KES:write_entry(nil, {protocol = { -- thread
-                        responders = {
-                            is = {handled = capability_check},
-                            ["="] = make_host_res_init("thread")}},
-                    state = {
-                        responders = {
-                            close = {unhandled = FLESH.artifact([[]])},
-                            isyieldable = {unhandled = FLESH.artifact([[]])},
-                            resume = {unhandled = FLESH.artifact([[]])},
-                            status = {unhandled = FLESH.artifact([[]])},
-                            wrap = {unhandled = FLESH.artifact([[]])},
-                        }
-                    }}),
-                    FLESH.KES:write_entry(nil, {protocol = { -- table
-                        responders = {
-                            is = {handled = capability_check},
-                            ["="] = FLESH.artifact([[return function (self, arg)
-                                -- create from table literal and native
-                                if (FLESH.capcheck(self,arg)) then return arg end -- literal uses same protocol, so we just passing
-                                if (type(arg) == "table") then return {protocol = self.state,state = arg}} end
-                                return -- Error manifest
-                            end]])}},
-                    state = {
-                        responders = {
-                            ["+"] = {handled = make_trans_op("..")},
-                            ["=="] = {handled = make_trans_op("==")},
-                            ["~="] = {handled = make_trans_op("~=")},
-                            size = {handled = make_trans("#")},
-                        },
-                        handled = FLESH.artifact([[return function (self, arg)
-                            -- TODO: we somehow need to check if arg is a number or a manifest
-                            return FLESH.import(self[arg.state]) -- we need to chanage the intent of import, so it would use this data
-                        end]])
-                    }}),
-                    FLESH.KES:write_entry(nil, {protocol = { -- unknown
-                        responders = {
-                            is = {handled = capability_check},
-                            ["="] = FLESH.artifact([[return function (self, arg) -- UNFINISHED
-                                return {protocol = self.state,state = arg}
-                            end]])}},
-                    state = {}}),
-                }}}
-        local host_tuple = {protocol = FLESH.KES:resolve("Tuple").state,
-            state = {
-                labels = table_invert({"meta", "intrinsics", "authority"}),
-                items = {
-                    FLESH.KES:write_entry(nil, {protocol = FLESH.KES:resolve("Tuple").state,
-                    state = {
-                        labels = table_invert({"name", "version"}),
-                        items = {
-                            FLESH.KES:write_entry(nil, {protocol = FLESH.KES:resolve("String").state,
-                            state = "Lua 5.5"}),
-                            FLESH.KES:write_entry(nil, {protocol = FLESH.KES:resolve("String").state,
-                            state = "0.0.1"}),
-                    }}}),
-                    FLESH.KES:write_entry(nil, {protocol = FLESH.KES:resolve("Tuple").state,
-                    state = {
-                        labels = table_invert({"types", "concepts"}),
-                        items = {
-                            FLESH.KES:write_entry(nil, host_types),
-                            FLESH.KES:write_entry(nil, {protocol = FLESH.KES:resolve("Tuple").state,
-                            state = {
-                                labels = table_invert({""}), -- wee need to distribute functions between manifests
-                            }})
-                    }}}),
-                    FLESH.KES:write_entry(nil, {protocol = FLESH.KES:resolve("Tuple").state,
-                    state = { -- should be something different, not tuple
-                        labels = table_invert({"coroutine", "debug", "io", "os", "package"}),
-                    }})
-                }
-            }
-        }
+        FLESH.make.Tuple = function (t)
+            local s = {labels = {}, items = {}}
+            for i,e in pairs(t) do
+                s.items[s.items+1] = e
+                if type(k) == "string" then
+                    s.labels[k] = #s.items
+                end
+            end
+            return {protocol = FLESH.KES:resolve("Tuple").state, state = s}
+        end
+
+        local host_types = FLESH.make.Tuple({ -- while it's a mapping table, FINAL fundamentally disagree with lua on type existance, so for example userdata can't be capchecked
+            ["nil"] = FLESH.KES:write_entry(nil, {protocol = {},state = {}}),
+            boolean = FLESH.KES:write_entry(nil, {protocol = {
+                    responders = {
+                        ["in"] = {handled = capability_check},
+                        ["="] = make_host_res_init("boolean")}},
+                state = {
+                    responders = {
+                        ["|"] = {handled = make_trans_op("or")},
+                        ["&"] = {handled = make_trans_op("and")},
+                        ["~"] = {unhandled = make_trans("not")},
+                        ["=="] = {handled = make_trans_op("==")},
+                        ["~="] = {handled = make_trans_op("~=")},
+                    }
+                }}),
+            number = FLESH.KES:write_entry(nil, {protocol = {
+                    responders = {
+                        ["in"] = {handled = capability_check},
+                        ["="] = make_host_res_init("number")}},
+                state = {
+                    responders = {
+                        ["+"] = {handled = make_trans_op("+")},
+                        ["-"] = {handled = make_trans_op("-")},
+                        ["*"] = {handled = make_trans_op("*")},
+                        ["/"] = {handled = make_trans_op("/")},
+                        ["%"] = {handled = make_trans_op("%")},
+                        ["^"] = {handled = make_trans_op("^")},
+                        ["|"] = {handled = make_trans_op("|")},
+                        ["&"] = {handled = make_trans_op("&")},
+                        ["<<"] = {handled = make_trans_op("<<")},
+                        [">>"] = {handled = make_trans_op(">>")},
+                        ["=="] = {handled = make_trans_op("==")},
+                        ["~="] = {handled = make_trans_op("~=")},
+                        ["<"] = {handled = make_trans_op("<")},
+                        [">"] = {handled = make_trans_op(">")},
+                        ["<="] = {handled = make_trans_op("<=")},
+                        [">="] = {handled = make_trans_op(">=")},
+                        abs = {unhandled = make_trans("math.abs")},
+                        acos = {unhandled = make_trans("math.acos")},
+                        asin = {unhandled = make_trans("math.asin")},
+                        atan = {unhandled = make_trans("math.atan")},
+                        ceil = {unhandled = make_trans("math.ceil")},
+                        cos = {unhandled = make_trans("math.cos")},
+                        deg = {unhandled = make_trans("math.deg")},
+                        exp = {unhandled = make_trans("math.exp")},
+                        floor = {unhandled = make_trans("math.floor")},
+                        fmod = {unhandled = make_trans("math.fmod")},
+                        frexp = {unhandled = make_trans("math.frexp")},
+                        huge = {unhandled = make_trans("math.huge")},  -- const
+                        ldexp = {unhandled = nil}, -- math.ldexp (m, e) - Returns m2e, where e is an integer.
+                        log = {unhandled = make_trans("math.log")},
+                        max = {unhandled = make_trans("math.max")},
+                        maxinteger = {unhandled = make_trans("math.maxinteger")}, -- const
+                        min = {unhandled = make_trans("math.min")},
+                        mininteger = {unhandled = make_trans("math.mininteger")}, -- const
+                        modf = {unhandled = nil}, -- Returns the integral part of x and the fractional part of x. Its second result is always a float.
+                        pi = {unhandled = make_trans("math.pi")}, -- const
+                        rad = {unhandled = make_trans("math.rad")},
+                        --random = {unhandled = make_trans("math.random")},
+                        --randomseed = {handled = nil}, -- [x, [y]]
+                        sin = {unhandled = make_trans("math.sin")},
+                        sqrt = {unhandled = make_trans("math.sqrt")},
+                        tan = {unhandled = make_trans("math.tan")},
+                        tointeger = {unhandled = make_trans("math.tointeger")},
+                        type = {unhandled = nil}, -- returns "integer" or "float" or fail
+                        ult = {handled = nil}, -- math.ult (m, n)
+                        to = {
+                            responders = {
+                                string = {unhandled = p_artifact([[return function (self)
+                                    return { -- UNFINISHED
+                                        protocol = FLESH.KES:resolve(host_types.state.items[host_types.state.labels.string]).state,
+                                        state = tostring(self.state)}
+                                end]])}}}
+                    }
+                }}),
+            string = FLESH.KES:write_entry(nil, {protocol = {
+                    responders = {
+                        ["in"] = {handled = capability_check},
+                        ["="] = make_host_res_init("string")}},
+                state = {
+                    responders = {
+                        ["+"] = {handled = make_trans_op("..")},
+                        ["=="] = {handled = make_trans_op("==")},
+                        ["~="] = {handled = make_trans_op("~=")},
+                        format = {handled = p_artifact([[return function (self, arg)
+                            -- check if arg is tuple and go on
+                        ]])},
+                        size = {unhandled = make_trans("string.len")},
+                        lower = {unhandled = make_trans("string.lower")},
+                        upper = {unhandled = make_trans("string.upper")},
+                        reverse = {unhandled = make_trans("string.reverse")},
+                        to = {
+                            responders = {
+                                number = {unhandled = p_artifact([[return function (self)
+                                    return {
+                                        protocol = FLESH.KES:resolve(host_types.state.items[host_types.state.labels.number]).state,
+                                        state = tonumber(self.state)}
+                                end]])}}}
+                    }
+                }}),
+            userdata = FLESH.KES:write_entry(nil, {protocol = { --UNFINISHED. the lua lables it userdata, but basically it's a capability wildcard that FINAL can't use to check against userdata instance 
+                    responders = {
+                    ["in"] = {handled = capability_check},
+                    ["="] = make_host_res_init("userdata")}},
+                state = {}}),
+            ["function"] = FLESH.KES:write_entry(nil, {protocol = {
+                    responders = {
+                    ["in"] = {handled = capability_check},
+                    ["="] = make_host_res_init("function")}},
+                state = {
+                    responders = {
+                        dump = {unhandled = p_artifact([[]])}
+                    },
+                    handled = p_artifact([[return function (self, arg)
+                        local tuple_p
+                        self.state
+                    end]])
+                }}),
+            thread = FLESH.KES:write_entry(nil, {protocol = {
+                    responders = {
+                        ["in"] = {handled = capability_check},
+                        ["="] = make_host_res_init("thread")}},
+                state = {
+                    responders = {
+                        close = {unhandled = p_artifact([[]])},
+                        isyieldable = {unhandled = p_artifact([[]])},
+                        resume = {unhandled = p_artifact([[]])},
+                        status = {unhandled = p_artifact([[]])},
+                        wrap = {unhandled = p_artifact([[]])},
+                    }
+                }}),
+            table = FLESH.KES:write_entry(nil, {protocol = {
+                    responders = {
+                        ["in"] = {handled = capability_check},
+                        ["="] = p_artifact([[return function (self, arg)
+                            -- create from table literal and native
+                            if (FLESH.capcheck(self,arg)) then return arg end -- literal uses same protocol, so we just passing
+                            if (type(arg) == "table") then return {protocol = self.state,state = arg}} end
+                            return -- Error manifest
+                        end]])}},
+                state = {
+                    responders = {
+                        ["+"] = {handled = make_trans_op("..")},
+                        ["=="] = {handled = make_trans_op("==")},
+                        ["~="] = {handled = make_trans_op("~=")},
+                        size = {handled = make_trans("#")},
+                        
+                    },
+                    handled = p_artifact([[return function (self, arg)
+                        -- TODO: we somehow need to check if arg is a number or a manifest
+                        return FLESH.import(self[arg.state]) -- we need to chanage the intent of import, so it would use this data
+                    end]])
+                }}),
+            unknown = FLESH.KES:write_entry(nil, {protocol = {
+                    responders = {
+                        ["in"] = {handled = capability_check},
+                        ["="] = p_artifact([[return function (self, arg) -- UNFINISHED
+                            return {protocol = self.state,state = arg}
+                        end]])}},
+                state = {}}),
+        })
+        local host_tuple = FLESH.make.Tuple({
+            meta = FLESH.make.Tuple({
+                name = "Lua 5.5",
+                version = "0.0.1"
+            }),
+            intrinsics = FLESH.make.Tuple({
+                types = nil,
+                concepts = nil,
+            }),
+            authority = FLESH.make.Tuple({
+                coroutine = nil,
+                debug = nil,
+                io = nil,
+                os = nil,
+                package = nil,
+            }),  
+        })
 
         --[[ -- since FINAL structured differently, lua interafec should be altered to fit the philosophy
         basic -- ???
@@ -599,7 +578,7 @@ return (function ()
         collectgarbage -- Host
         dofile -- Host
         error -- Host
-        getmetatable -- table
+        getmetatable -- table, userdata
         ipairs -- table, userdata
         load -- Host
         loadfile -- Host
@@ -624,21 +603,21 @@ return (function ()
         FLESH.KES:write_entry("Protocol", { -- Protocol for new Protocols
             protocol = {
                 responders = {
-                    of = {handled = FLESH.artifact([[]])},
-                    is = {handled = capability_check}, -- capability_check is shared artifact
-                    ["="] = {handled = FLESH.artifact([[]])}
+                    --of = {handled = p_artifact([[]])}, -- no matter how sweet it looks, we literally can't do that
+                    ["in"] = {handled = capability_check}, -- capability_check is shared artifact
+                    ["="] = {handled = p_artifact([[]])}
                 },
-                handled = FLESH.artifact([[]]), -- artifact for creating new protocol manifests
+                handled = p_artifact([[]]), -- artifact for creating new protocol manifests
             },
             state = {
-                is = capability_check
+                ["in"] = capability_check
             }
         })
         FLESH.KES:write_entry("Manifest", { -- Protocol for directly constructing Manifests
             protocol = {
                 responders = {
-                    is = {handled = capability_check}, -- capability_check is shared artifact 
-                    ["="] = {handled = FLESH.artifact([[return function (self, arg) 
+                    ["in"] = {handled = capability_check}, -- capability_check is shared artifact 
+                    ["="] = {handled = p_artifact([[return function (self, arg) 
                     
                     --we take Tuple from arg
                     --make manifest for the KES with actual lua tables
@@ -653,7 +632,7 @@ return (function ()
         })
         
         FLESH.KES:write_entry("//", {protocol = {
-            handled = FLESH.artifact("return function (self, arg) return { protocol = { handled = FLESH.artifact(\"return function (self, arg) return arg end\")}} end")}})
+            handled = p_artifact("return function (self, arg) return { protocol = { handled = p_artifact(\"return function (self, arg) return arg end\")}} end")}})
         FLESH.KES:write_entry("gap", {protocol = {}, state = {}})
         
 
@@ -662,46 +641,46 @@ return (function ()
         FLESH.KES:write_entry("String", FLESH.KES:resolve(host_types.state.items[host_types.state.labels.string]))
         FLESH.KES:write_entry("Label", { -- it's job is just labeling manifests
             protocol = {
-                is = {handled = capability_check},
-                ["="] = {handled = FLESH.artifact([[]])}
+                ["in"] = {handled = capability_check},
+                ["="] = {handled = p_artifact([[]])}
             },
             state = {
                 responders = {
-                    [":"] = {unhandled = FLESH.artifact([[return function (self)
+                    [":"] = {unhandled = p_artifact([[return function (self)
                         FIS.pending_labels[self.state.name] = true
-                        return { protocol = { handled = FLESH.artifact("return function (self, arg) return arg end")} }end]])},
-                    ["name"] = {unhandled = FLESH.artifact([[return function (self)
+                        return { protocol = { handled = p_artifact("return function (self, arg) return arg end")} }end]])},
+                    ["name"] = {unhandled = p_artifact([[return function (self)
                         return {
                             protocol = FLESH.KES.bindings[FLESH.KES.bindings.String.records[FLESH.host_layer] ].records[FLESH.host_layer].state,
                             state = self.state.name}
                     end]])},
                 },
-                unhandled = FLESH.artifact([[return function (self) 
+                unhandled = p_artifact([[return function (self) 
                     return FLESH.KES:resolve(self.state.name)
                 end]])
             }
         })
         FLESH.KES:write_entry("Tuple", {
             protocol = {
-                is = {handled = capability_check},
-                ["="] = {handled = FLESH.artifact([[]])}
+                ["in"] = {handled = capability_check},
+                ["="] = {handled = p_artifact([[]])}
             },
             state = {
                 responders = {
-                    ["+"] = {handled = FLESH.artifact([[]])},
-                    ["*"] = {handled = FLESH.artifact([[]])},
-                    load = {unhandled = FLESH.artifact([[return function (self)
+                    ["+"] = {handled = p_artifact([[]])},
+                    ["*"] = {handled = p_artifact([[]])},
+                    load = {unhandled = p_artifact([[return function (self)
                         local labels, items = self.state.labels, self.state.items
                         if labels then
                             if items then
                                 for i,e in pairs(labels) do
                                     FIS.pending_labels[i] = true -- items[e]... FIS.pending_labels can't sustain this, I need different interface for passing pending context effects. I also have same problem in membranes
                                 end end end end]])},
-                    ["."] = {unhandled = FLESH.artifact([[return function (self) --TODO
+                    ["."] = {unhandled = p_artifact([[return function (self) --TODO
                         self.state.labels
                     end]])},
                 },
-                handled = FLESH.artifact([[return function (self, arg) 
+                handled = p_artifact([[return function (self, arg) 
                     local num_p = FLESH.KES.bindings[FLESH.KES.bindings.Number.records[FLESH.host_layer] ].records[FLESH.host_layer]
                     if (FLESH.capcheck(num_p, arg)) then
 
@@ -715,16 +694,16 @@ return (function ()
         })
         FLESH.KES:write_entry("Sequence", {
             protocol = {
-                is = {handled = capability_check},
-                ["="] = {handled = FLESH.artifact([[]])}
+                ["in"] = {handled = capability_check},
+                ["="] = {handled = p_artifact([[]])}
             },
             state = {
                 responders = {
-                    prods = {unhandled = FLESH.artifact([[]])}, -- in order to get raw data, @ must be used
-                    creturn = {unhandled = FLESH.artifact([[]])}, -- in order to get raw data, @ must be used
-                    introspect = {unhandled = FLESH.artifact([[]])}
+                    prods = {unhandled = p_artifact([[]])}, -- in order to get raw data, @ must be used
+                    creturn = {unhandled = p_artifact([[]])}, -- in order to get raw data, @ must be used
+                    introspect = {unhandled = p_artifact([[]])}
                 },
-                handled = FLESH.artifact([[return function (self, arg)
+                handled = p_artifact([[return function (self, arg)
                     local prods = self.state.prods
                     FLESH.KES:push_layer(self.state.parent, self.state.grounded, self.state.isolated, FLESH.FIS.tail_context or table.create(0, #prods))
                     local pl = {}
@@ -751,11 +730,11 @@ return (function ()
         })
         FLESH.KES:write_entry("Membrane", { -- controls effect(or context layer mutations) propogation of current context layer relative to other context layers
             protocol = {
-                is = {handled = capability_check},
-                ["="] = {handled = FLESH.artifact([[]])}
+                ["in"] = {handled = capability_check},
+                ["="] = {handled = p_artifact([[]])}
             },
             state = {
-                unhandled = FLESH.artifact([[return function (self) -- do consider that this is definition of something, meaning it paints
+                unhandled = p_artifact([[return function (self) -- do consider that this is definition of something, meaning it paints
                     local content = FLESH.KES:resolve(self.state.content)
                     --if content and content.state then
                         if (self.state.kind == 2) then -- grounded
@@ -779,14 +758,14 @@ return (function ()
         })
         FLESH.KES:write_entry("Negotiation", {
             protocol = {
-                is = {handled = capability_check},
-                ["="] = {handled = FLESH.artifact([[]])}
+                ["in"] = {handled = capability_check},
+                ["="] = {handled = p_artifact([[]])}
             },
             state = {
                 bindings = {
                     
                 },
-                unhandled = FLESH.artifact([[return function (self)
+                unhandled = p_artifact([[return function (self)
                     -- resolve terms: we hold references in state, not data
                     local lt = FLESH.KES:resolve(self.state.lterm)
                     local rt = FLESH.KES:resolve(self.state.rterm)
@@ -823,7 +802,7 @@ return (function ()
                     state = {name = name}}) end,
             TUPLE = function (items) -- TODO: this one isn't a tuple, but a constructor for it that creates environment for writing, like Sequence
                 return FLESH.KES:write_entry(nil, { -- constructor
-                    protocol = {unhandled = FLESH.artifact([[return function (self)
+                    protocol = {unhandled = p_artifact([[return function (self)
                         -- it's easier to do the lua way on lua side, though later I'll need to repalce it with Manifest that don't create another artifact like this
                         local items = self.state.items
                         local proc_items = table.create and table.create(#items) or {}
@@ -844,7 +823,7 @@ return (function ()
             SEQUENCE = function (prods, creturn) -- Sequence holds quoted stuff, so we are not doing any actual construction
                 return FLESH.KES:write_entry(nil,{
                     protocol = {
-                        unhandled = FLESH.artifact([[return function (self)
+                        unhandled = p_artifact([[return function (self)
                             return FLESH.KES:write_entry(nil, {
                                 protocol = FLESH.KES:resolve("Sequence").state,
                                 state = {grounded = FIS.def_grounded or false, isolated = FIS.def_isolated or false, prods = self.state.prods, creturn = self.state.creturn, parent = FLESH.get_context()}
@@ -863,14 +842,14 @@ return (function ()
                     state = {lterm = lterm, rterm = rterm}}) end
         }
 
-        local manifest = { -- manifest structure reference
+        local manifest = { -- manifest structure reference ()
             template = { 
                 protocol = { -- always table
                     responders = {}, -- prio, find appropriate Label in front of manifest (maybe I should make this into tuple, that depicts the environment for the label in front of it)
                     handled = nil, -- not found appropriate Label in responders, do it if there is negotiation
                     unhandled = nil, -- not found appropriate Label in responders, do it anyways with (if no handled) or without negotioation. this rule exist to describle labels
                 },
-                state = { -- internal state of manifest, could be used by protocol above. represent 
+                state = { -- internal state of manifest, could only be used by protocol it's bundled with.
             
         }}}
 
@@ -881,7 +860,6 @@ return (function ()
     return {
     _VERSION="0.0.1",
     newstate = newstate,
-    manifest = manifest, -- subject for removal in favour of docs
     parse = (function ()
         local table_invert = function (t)
             local s={}
@@ -1167,3 +1145,35 @@ return (function ()
         end 
     end)() -- returns src's AST prepared for loading into NegI state via FLESH.load (and yes, it's a function constructor)
 } end)()
+
+--[[
+Function : Manifest = [
+    protocol : [
+        responders : [
+            in : [handled : Protocol in,],
+            = : [handled : Artifact = "",] // "adds arguments, turning it into contract"
+        ],
+    ],
+    state : [
+        responders : [
+            = : Artifact = "", // "assign a body"
+            arg : Artifact = "", // "get arguments"
+            ret : Artifact = "", // "get output"
+        ],
+    ]
+];
+Structure : Manifest = [
+    protocol : [
+        responders : [
+            in : [handled : Protocol in,],
+            = : [handled : Artifact = "",] // "adds Tuple with protocols, turning it into struct"
+        ],
+    ],
+    state : [
+        responders : [
+            in : [handled : Artifact = "",], // "checks if passed Tuple content matches it's own protocol template"
+            template : [unhandled : Artifact = "",] // "get the Tuple we checking against"
+        ],
+    ]
+];
+]]
