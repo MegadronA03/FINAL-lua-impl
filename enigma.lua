@@ -1,3 +1,4 @@
+-- I just realized that I might have bugs related to assumption that lua length counts table keys, but apparently it returns first index right before nil
 return (function ()
     --Idea: ENIGMA - Epistemic Negotiation Interface for/of Gentzen Manifested Abstractions
     --Syntax: NegI - Negotiation Interface (the interface)
@@ -152,29 +153,6 @@ return (function ()
                     return c
                 end,
             },
-            import = function (o)-- imports lua object "o" inside FINAL environment
-                -- it should find FINAL's host knowledge and apply appropriate interface from it.
-                if o then
-                    local h = FLESH.KES:resolve("host")
-                    local hl = h.state.labels
-                    local hb = h.state.items
-                    local n = { -- need rework to Native
-                        protocol = FLESH.KES:resolve("Native").state, -- protocol and state are tables, not references. this solves metacircularity problem 
-                        interface = hb[hl[type(o)]], -- should probably replace with protocol call from `host` tuple
-                        external = o
-                    }
-                    setmetatable(n, {__index = function (s,i) -- we make lazy fetch on Artifact, because we have a metacircular situation
-                        local v = rawget(s,i)
-                        if i ~= "protocol" then return v end
-                            v = FLESH.KES:resolve("Native").state
-                            rawset(s,i,v) 
-                            setmetatable(s, nil) end
-                        return v})
-                    return FLESH.KES:write_entry(nil, n)
-                else
-                    return "gap" -- we have direct match here, no need to store it
-                end
-            end,
             dispatch = function (self, lterm, rterm, protocol)
                 if lterm == nil then return end
                 if rterm and rterm.protocol and rterm.protocol.unhandled then
@@ -291,13 +269,14 @@ return (function ()
                     artifact = a}} end
 
         FLESH.capcheck = function(self, arg)
-            arg = FLESH:dispatch(arg, nil, arg.protocol)
+            -- arg = FLESH:dispatch(arg, nil, arg.protocol)
+            local fail = function () return arg.protocol.unhandled and FLESH.capcheck(FLESH:dispatch(arg, nil, arg.protocol)) or false end
             for i,e in pairs(self.state) do
                 if (arg.protocol[i] ~= e) then
-                    return false end end -- that should be Boolean Manifest
+                    return fail() end end -- that should be Boolean Manifest
             for i,e in pairs(self.state.responders) do
                 if (arg.protocol.responders[i] ~= e) then
-                    return false end end -- that should be Boolean Manifest
+                    return fail() end end -- that should be Boolean Manifest
             return true end
 
         --common between protocol manifests
@@ -353,12 +332,10 @@ return (function ()
         }})
 
         -- no implicit conversions, this is only between this specific implementation
-        local make_trans_op = function (op, bool)
+        local make_trans_op = function (op)
             return p_artifact([[return function (self, arg)
-                if (FLESH.capcheck({state = self.protocol},arg)) then
-                    return {
-                        protocol = self.protocol,
-                        state = ((self.state ]]..op..[[ arg.state)]]..bool or (" and 1 or 0")..[[)}
+                if (FLESH.capcheck({state = self.protocol},arg)) then -- 2nd value might have different protocol, I think I'll need to rework this into lua general value protocol check or something.
+                    return FLESH:import(self.state ]]..op..[[ arg.state)
                 else
                     return -- Error manifest
                 end
@@ -366,9 +343,7 @@ return (function ()
         end
         local make_trans = function (trans)
             return p_artifact([[return function (self)
-                return {
-                    protocol = self.protocol,
-                    state = (]]..trans..[[(self.state))}
+                return FLESH:import(]]..trans..[[(self.state))
             end]])
         end
         local make_host_res_init = function (host_type)
@@ -391,7 +366,12 @@ return (function ()
             return {protocol = FLESH.KES:resolve("Tuple").state, state = s}
         end
 
-        local host_types = FLESH.make.Tuple({ -- while it's a mapping table, FINAL fundamentally disagree with lua on type existance, so for example userdata can't be capchecked
+        FLESH.make.Error = function (desc)
+            return {
+                protocol = FLESH.KES.bindings[FLESH.KES.bindings.Error.records[FLESH.host_layer] ].records[FLESH.host_layer].state,
+                state = {desc = desc}}end
+
+        local host_protocols = FLESH.make.Tuple({ -- while it's a mapping table, FINAL fundamentally disagree with lua on type existance, so for example userdata can't be capchecked
             ["nil"] = FLESH.KES:write_entry(nil, {protocol = {},state = {}}),
             boolean = FLESH.KES:write_entry(nil, {protocol = {
                     responders = {
@@ -491,11 +471,7 @@ return (function ()
                                 end]])}}}
                     }
                 }}),
-            userdata = FLESH.KES:write_entry(nil, {protocol = { --UNFINISHED. the lua lables it userdata, but basically it's a capability wildcard that FINAL can't use to check against userdata instance 
-                    responders = {
-                    ["in"] = {handled = capability_check},
-                    ["="] = make_host_res_init("userdata")}},
-                state = {}}),
+            userdata = nil, -- the lua lables it userdata, but basically it's a capability wildcard that FINAL can't use to check against userdata instance 
             ["function"] = FLESH.KES:write_entry(nil, {protocol = {
                     responders = {
                     ["in"] = {handled = capability_check},
@@ -506,7 +482,7 @@ return (function ()
                     },
                     handled = p_artifact([[return function (self, arg)
                         local tuple_p
-                        self.state
+                        return FLESH:import(self.state(table.unpack(args)))
                     end]])
                 }}),
             thread = FLESH.KES:write_entry(nil, {protocol = {
@@ -522,7 +498,7 @@ return (function ()
                         wrap = {unhandled = p_artifact([[]])},
                     }
                 }}),
-            table = FLESH.KES:write_entry(nil, {protocol = {
+            table = FLESH.KES:write_entry(nil, {protocol = { -- this also somewhat capability wildcard, but the importer uses different protocol for table, if it's table isn't empty
                     responders = {
                         ["in"] = {handled = capability_check},
                         ["="] = p_artifact([[return function (self, arg)
@@ -541,7 +517,7 @@ return (function ()
                     },
                     handled = p_artifact([[return function (self, arg)
                         -- TODO: we somehow need to check if arg is a number or a manifest
-                        return FLESH.import(self[arg.state]) -- we need to chanage the intent of import, so it would use this data
+                        return FLESH:import(self[arg.state]) -- we need to chanage the intent of import, so it would use this data
                     end]])
                 }}),
             unknown = FLESH.KES:write_entry(nil, {protocol = {
@@ -552,22 +528,78 @@ return (function ()
                         end]])}},
                 state = {}}),
         })
+
+        
+
+        FLESH.import = (function () 
+            local value_mapping = function (self, o)
+                return {
+                    protocol = host.protocols[type(o)].state, -- I need to rework the structure
+                    state = o} end
+
+            local gen_mt_protocol = function (self, mt)
+                for k,v in pairs(mt) do
+                    
+                end
+            end
+
+            local mapping = {
+                ["nil"] = (function () 
+                    local instance = nil -- I should think on how I can integrate it
+                    return function (self, o)
+                        return instance
+                end end)(),
+                boolean = (function ()
+                    local instances = {value_mapping(self, false), value_mapping(self, true)} -- we keep lua from creating new tables for finite amount of states, by just caching them
+                    return function (self, o)
+                        return instances[o and 2 or 1]
+                end end)(),
+                number = value_mapping,
+                string = value_mapping,
+                userdata = function (self, o)
+                    local capability = getmetatable(o)
+                    -- we generate capability mapping no matter the reason
+                    return {protocol = gen_mt_protocol(self, o), state = o}
+                end,
+                ["function"] = value_mapping,
+                thread = value_mapping,
+                table = function (self, o)
+                    local mt = getmetatable(o)
+                    if mt then
+                        return {protocol = gen_mt_protocol(self, mt), state = o} -- unfinished, since it doesn't handle default table behaivour
+                    else
+                        return value_mapping(self, o)
+                    end
+                end
+            }
+
+            return function (self, o) -- imports lua object "o" inside FINAL environment
+                -- it should find FINAL's host knowledge and apply appropriate interface from it.
+                
+                local pif = mapping[type(o)]
+                if pif then
+                    return pif(self, o)
+                else
+                    -- at this point I should make Error constructors, preferrably that would have error codes
+                end
+            end end)()
+
         local host_tuple = FLESH.make.Tuple({
-            meta = FLESH.make.Tuple({
+            meta = FLESH.KES:write_entry(FLESH.make.Tuple({
                 name = "Lua 5.5",
                 version = "0.0.1"
-            }),
-            intrinsics = FLESH.make.Tuple({
+            })),
+            intrinsics = FLESH.KES:write_entry(FLESH.make.Tuple({
                 types = nil,
                 concepts = nil,
-            }),
-            authority = FLESH.make.Tuple({
+            })),
+            authority = FLESH.KES:write_entry(FLESH.make.Tuple({
                 coroutine = nil,
                 debug = nil,
                 io = nil,
                 os = nil,
                 package = nil,
-            }),  
+            })),  
         })
 
         --[[ -- since FINAL structured differently, lua interafec should be altered to fit the philosophy
