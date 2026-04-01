@@ -1,4 +1,7 @@
--- I just realized that I might have bugs related to assumption that lua length counts table keys, but apparently it returns first index right before nil
+--TODOs:
+-- 1. Make Negi parser manifest and move existing parser code there. Currently it's nodes are all disconnected and just exist in main context, which just looks like some kid didn't put back toys inside a box.
+-- 2. Tuple load and Tuple context. This is the last major issue that keep me from testing phase.
+-- 3. Host representation. Lua have quite messy syntax and context, we need to nicely wrap this up inside some Manifest or Tuple.
 return (function ()
     --Idea: ENIGMA - Epistemic Negotiation Interface for/of Gentzen Manifested Abstractions
     --Syntax: NegI - Negotiation Interface (the interface)
@@ -90,11 +93,11 @@ return (function ()
                     else l = {d = 1, s = grounded and {r={},i={}} or nil, c = (size and table.create) and table.create(0, size) or {}}} end
                     if isolated then bimap_write(self.isolations, "od", #self.isolations.od+1, l.d) end -- isolated (external binding resolving, causes it to use resolving oblivious to effects from here)
                     if grounded then -- grounded
-                        for i = l.d, #self.relevance.dl do -- exclude all layers between parent and new layer via depth
+                        for i = #self.relevance.dl, l.d, -1 do -- exclude all layers between parent and new layer via depth
                             l.s.r[#l.s.r+1] = self.relevance.dl[i] -- add shadowed layers (we can ask depth form them directly)
                             bimap_write(self.relevance, "dl", i, nil) end -- removing irrelevant layers
                         if iso_depth then -- if crossing or sealing isolations
-                        for i = self.isolations["do"][iso_depth], #self.isolations.od do -- iso_depth is calculated anyways, but I think I need to reorganize this code
+                        for i = #self.isolations.od, self.isolations["do"][iso_depth], -1 do -- iso_depth is calculated anyways, but I think I need to reorganize this code
                             l.s.i[#l.s.i+1] = self.isolations.od[i] -- add shadowed isolations (we can ask depth form them directly)
                             bimap_write(self.isolations, "od", i, nil) end end end -- removing irrelevant isolations
                     self.layers[#self.layers+1] = l
@@ -114,7 +117,9 @@ return (function ()
                             local db = (type(i) == "number") and self.bindings or self.labels
                             local rt = db[i]
                             rt.records[#self.layers] = nil
-                            bimap_write(rt.order, "lo", #self.layers, nil)
+                            if (rt.order.lo[#self.layers] == rt.order.ol[#rt.order.ol]) then
+                                bimap_write(rt.order, "lo", #self.layers, nil) else
+                                error("KES:pop_layer - invalid layer in unload transaction query. [Z_Z] Currently I'm thinking to keep it as user error or make code for handling this.", 2) end
                             if #rt.records <= 0 then db[i] = nil end end end
                     if (#self.layers > 0) then self.layers[#self.layers] = nil end -- removing layer
                     return migrate and self.layers[#self.layers + 1].c or nil -- for tail calls it's preferably to return lifted context
@@ -269,7 +274,7 @@ return (function ()
                     artifact = a}} end
 
         FLESH.capcheck = function(self, arg)
-            -- arg = FLESH:dispatch(arg, nil, arg.protocol)
+            -- arg = FLESH:dispatch(arg, nil, arg.protocol) -- I think I should avoid collecting capabilities into flat protocol???
             local fail = function () return arg.protocol.unhandled and FLESH.capcheck(FLESH:dispatch(arg, nil, arg.protocol)) or false end
             for i,e in pairs(self.state) do
                 if (arg.protocol[i] ~= e) then
@@ -321,14 +326,19 @@ return (function ()
         })
 
         FLESH.KES:write_entry("Token", { -- adds parser data to values
-            protocol = {},
+            protocol = {["in"] = {handled = capability_check}},
             state = {
                 responders = {
-                    t_source = {unhandled = p_artifact([[]])},
-                    t_id = {unhandled = nil},
-                    t_position = {unhandled = nil},
+                    token = {responders = {
+                        root = {unhandled = p_artifact([[]])}, -- references root Token from where it is
+                        parent = {unhandled = p_artifact([[]])}, -- return parent Token (probably won't add this, because I don't store that)
+                        element = {unhandled = p_artifact([[]])}, -- text representation of Token
+                        id = {unhandled = nil}, -- it's id (probably will remove it)
+                        position = {unhandled = nil}, -- position relative to root Token text representation
+                        content = {unhandled = nil}, -- return Tuple with it's child Tokens (probably won't add this, because I store that in opaque non-uniform states)
+                    }}
                 },
-                unhandled = {}, -- retrieves data from token
+                unhandled = p_artifact([[return function (self) return self.state.token end]]), -- fallback to standard token operation
         }})
 
         -- no implicit conversions, this is only between this specific implementation
@@ -358,7 +368,7 @@ return (function ()
         FLESH.make.Tuple = function (t)
             local s = {labels = {}, items = {}}
             for i,e in pairs(t) do
-                s.items[s.items+1] = e
+                s.items[#s.items+1] = e
                 if type(k) == "string" then
                     s.labels[k] = #s.items
                 end
@@ -585,15 +595,15 @@ return (function ()
             end end)()
 
         local host_tuple = FLESH.make.Tuple({
-            meta = FLESH.KES:write_entry(FLESH.make.Tuple({
-                name = "Lua 5.5",
-                version = "0.0.1"
+            meta = FLESH.KES:write_entry(nil, FLESH.make.Tuple({
+                name = FLESH.KES:write_entry(nil, FLESH:import("Lua 5.5")),
+                version = FLESH.KES:write_entry(nil, FLESH:import("0.0.1"))
             })),
-            intrinsics = FLESH.KES:write_entry(FLESH.make.Tuple({
+            intrinsics = FLESH.KES:write_entry(nil, FLESH.make.Tuple({
                 types = nil,
                 concepts = nil,
             })),
-            authority = FLESH.KES:write_entry(FLESH.make.Tuple({
+            authority = FLESH.KES:write_entry(nil, FLESH.make.Tuple({
                 coroutine = nil,
                 debug = nil,
                 io = nil,
