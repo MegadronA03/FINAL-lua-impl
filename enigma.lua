@@ -1,7 +1,9 @@
 --TODOs:
 -- 1. Make Negi parser manifest and move existing parser code there. Currently it's nodes are all disconnected and just exist in main context, which just looks like some kid didn't put back toys inside a box.
 -- 2. Tuple load and Tuple context. This is the last major issue that keep me from testing phase.
+-- 2.1 Tuple keep mutations only if passed explicitly after pop_layer. The main difficulty of this is sometimes Tuple keeps mutations and sometimes don't?
 -- 3. Host representation. Lua have quite messy syntax and context, we need to nicely wrap this up inside some Manifest or Tuple.
+
 return (function ()
     --Idea: ENIGMA - Epistemic Negotiation Interface for/of Gentzen Manifested Abstractions
     --Syntax: NegI - Negotiation Interface (the interface)
@@ -273,15 +275,24 @@ return (function ()
                     env = env,
                     artifact = a}} end
 
-        FLESH.capcheck = function(self, arg)
-            -- arg = FLESH:dispatch(arg, nil, arg.protocol) -- I think I should avoid collecting capabilities into flat protocol???
+        FLESH.intentcheck = function(self, arg) -- State intent of manifests are matching?
+            for i,e in pairs(self.state) do
+                if (arg.protocol[i] ~= e) then
+                    return false end end
+            for i,e in pairs(self.state.responders) do
+                if (arg.protocol.responders[i] ~= e) then
+                    return false end end
+            return true end
+
+        FLESH.capcheck = function(self, arg) -- Even through fallbacks, is manifest implements this protocol?
+            -- TODO: check protocol in flat form, we need to make sure clauses are reachable, not that there is inside chain some Manifest that satisfy intent.
             local fail = function () return arg.protocol.unhandled and FLESH.capcheck(FLESH:dispatch(arg, nil, arg.protocol)) or false end
             for i,e in pairs(self.state) do
                 if (arg.protocol[i] ~= e) then
-                    return fail() end end -- that should be Boolean Manifest
+                    return fail() end end
             for i,e in pairs(self.state.responders) do
                 if (arg.protocol.responders[i] ~= e) then
-                    return fail() end end -- that should be Boolean Manifest
+                    return fail() end end
             return true end
 
         --common between protocol manifests
