@@ -3,9 +3,10 @@
 -- 2. Tuple load and Tuple context. This is the last major issue that keep me from testing phase.
 -- 2.1 Tuple keep mutations only if passed explicitly after pop_layer. The main difficulty of this is sometimes Tuple keeps mutations and sometimes don't?
 -- 3. Host representation. Lua have quite messy syntax and context, we need to nicely wrap this up inside some Manifest or Tuple.
+-- 4. Rework dynamic membrane as delayed behaivour: rework push_layer into always grounded. grounded - immediate, dynamic - verb, isolated - contained.
 
 return (function ()
-    --Idea: ENIGMA - Epistemic Negotiation Interface for/of Gentzen Manifested Abstractions
+    --Idea: FATHOM: Framework for Authority Transactions Handling Operational Manifests
     --Syntax: NegI - Negotiation Interface (the interface)
     --System: FINAL - Final Is Not A Language (the substrate)
 
