@@ -1,4 +1,4 @@
-# The FATHOM Specification & Design Rationale
+# The FINAL Specification & Design Rationale
 **Version:** 0.0.5 (Pre-Release)
 **Authors:** Z_Z (MegadronA03)
 **Status:** Draft
@@ -33,9 +33,9 @@ To facilitate feedback, every section is tagged with a confidence level:
 
 What is passed off to the Host (Lua): 
 *   **Physics**: Raw computation, memory allocation, and Garbage Collection. 
-*   **Primitives**: Hash tables, arrays, and basic IO. FATHOM wraps these, it doesn't rebuild them from scratch. 
+*   **Primitives**: Hash tables, arrays, and basic IO. FINAL wraps these, it doesn't rebuild them from scratch. 
 
-What is handled by FATHOM (The Implementation): 
+What is handled by FINAL (The Implementation): 
 *   **Semantics**: How objects interact (Negotiation/Protocols). 
 *   **Structure**: How scope and memory are organized (The Layer Tree/KES). 
     Safety: Authority containment and isolation logic. 
@@ -43,7 +43,7 @@ What is handled by FATHOM (The Implementation):
 What I'm working on now (The "Edge Cases"):
 You asked what it does and doesn't do - currently, the biggest challenge is Label handling in Sequences. 
 
-In a standard language, x = 1; y = x is trivial. In FATHOM, because Scope is a transactional Layer, I have to strictly define when a label becomes visible. 
+In a standard language, x = 1; y = x is trivial. In FINAL, because Scope is a transactional Layer, I have to strictly define when a label becomes visible. 
 *   **The Struggle**: I am currently refining how pending_labels are buffered during a Sequence iteration.
 *   **The Goal**: I need to ensure that a label defined in step 1 is active and resolvable in step 2, but strictly contained if the Sequence fails or forks. It’s a battle between 'Immediate Visibility' (ease of use) and 'Transactional Hygiene' (safety).
 
@@ -66,20 +66,20 @@ Create a flexible standard that can use any host to replicate the logic of inter
 *   The standard simply provides the rules for *how* these concepts interact.
 
 #### 1.1.3 How It Operates
-Think of FATHOM as **"Bash for uniformly interfacing with any host."**
+Think of FINAL as **"Bash for uniformly interfacing with any host."**
 It treats host code snippets as "Authority" (capabilities). Using abstractions (Protocols), it defines interactions between these Authorities—either by executing them directly or by constructing a program structure.
 
 #### 1.1.4 What This Theoretically Enables
-The parser itself is just another Manifest generator that FATHOM evaluates. This means the system is not tied to its own syntax.
+The parser itself is just another Manifest generator that FINAL evaluates. This means the system is not tied to its own syntax.
 *   **Syntax Agnosticism**: It allows for seamless interoperation between different host expressions.
-*   **Logic Extraction**: If you provide FATHOM with an Authority definition (how to run it), it can theoretically retrieve the raw logic execution on a completely different host.
+*   **Logic Extraction**: If you provide FINAL with an Authority definition (how to run it), it can theoretically retrieve the raw logic execution on a completely different host.
 
 #### 1.1.5 Scope
-The scope is strictly **"Common Grounds for Host Operation."** FATHOM does not define the physics (implementation); it defines the laws (semantics).
+The scope is strictly **"Common Grounds for Host Operation."** FINAL does not define the physics (implementation); it defines the laws (semantics).
 
 ## 1.2 What this is
 
-FATHOM (Framework for Authority Transactions Handling Operational Manifests) is not a language in the traditional sense; it is a **semantic substrate**. It is designed to solve the "Ship of Theseus" problem in software: allowing a system to replace its components, semantics, and even its underlying runtime without losing its identity.
+FINAL  Framework for Intent Negotiation and Authority Logic (or Final Is Not A Language) is not a language in the traditional sense; it is a **semantic substrate**. It is designed to solve the "Ship of Theseus" problem in software: allowing a system to replace its components, semantics, and even its underlying runtime without losing its identity.
 
 ### 1.2.1 Core Philosophy
 *   **Everything is a Negotiation**: There are no "function calls," only negotiations between Manifests.
@@ -90,7 +90,7 @@ FATHOM (Framework for Authority Transactions Handling Operational Manifests) is 
 
 ## 2. Design Principles & Ethos
 **[STABLE]**
-*This section defines the governing laws of FATHOM's evolution. Any feature that violates these principles is considered a design error.*
+*This section defines the governing laws of FINAL's evolution. Any feature that violates these principles is considered a design error.*
 
 The development of NegI and FINAL pursues these directions:
 
@@ -108,12 +108,12 @@ The development of NegI and FINAL pursues these directions:
 
 ### 3.1 Simplicity vs. Emergence
 On its own, NegI code is syntactically minimal. The parser generates roughly 8 types of nodes.
-**Complexity in FATHOM does not come from expressions; it comes from interactions.** The system exhibits **Emergent Behavior**. Simple rules (Negotiation, Layer Pushing, Protocol Dispatch) combine to create complex, resilient systems.
+**Complexity in FINAL does not come from expressions; it comes from interactions.** The system exhibits **Emergent Behavior**. Simple rules (Negotiation, Layer Pushing, Protocol Dispatch) combine to create complex, resilient systems.
 
 ### 3.2 Divine Abstractions
-FATHOM operates on "Divine Abstractions." The user is not writing procedural instructions; they are invoking high-level concepts.
+FINAL operates on "Divine Abstractions." The user is not writing procedural instructions; they are invoking high-level concepts.
 
-This leads to the fundamental rule of FATHOM's memory management:
+This leads to the fundamental rule of FINAL's memory management:
 > **"Exit to the paradise is through oblivion."**
 
 When a Sequence ends, its context is not just "cleaned up" — it is destroyed. The assumptions, temporary variables, and state of that "thought" cease to exist. The only way to reach the next step (Paradise) is to let the previous context die (Oblivion).
@@ -135,8 +135,8 @@ The memory manager. It implements a **Tree-based Scope Model** using a linear st
 *   **Relevance**: The mechanism determining visibility and order of layers in current context.
 
 **Rationale**: Why not a standard stack?
-> A standard stack implies linear execution. FATHOM needs to support branching context (grounding) and sandboxing (isolation) natively. KES allows the execution to "jump" back to an ancestor context or cut off access to it, enabling structural safety.
-In most languages, you can't control your scope - it's just 'where you are'. In FATHOM, scopes are called Layers. You can isolate them (sandbox), save them (persist), or rewire them (metaprogramming). 
+> A standard stack implies linear execution. FINAL needs to support branching context (grounding) and sandboxing (isolation) natively. KES allows the execution to "jump" back to an ancestor context or cut off access to it, enabling structural safety.
+In most languages, you can't control your scope - it's just 'where you are'. In FINAL, scopes are called Layers. You can isolate them (sandbox), save them (persist), or rewire them (metaprogramming). 
 This means you can safely run untrusted code inside your program without crashes, or rewrite how if/else works at runtime, because the language itself is just data structures you can manipulate." 
 
 ---
@@ -148,7 +148,7 @@ These are the building blocks provided by the `FLESH` environment.
 **[STABLE]**
 *   **Role**: Bridge to the host platform (Lua).
 *   **Protocol**: Defines how external code is executed.
-*   **Rationale**: `Artifact` is the "executable" Manifest. It encapsulates host code inside a safety wrapper. This allows FATHOM to redefine "execution" without rewriting the host.
+*   **Rationale**: `Artifact` is the "executable" Manifest. It encapsulates host code inside a safety wrapper. This allows FINAL to redefine "execution" without rewriting the host.
 
 ### 5.2 `Protocol`
 **[STABLE]** (Definition) / **[FLUID]** (Host Interop)
@@ -317,6 +317,6 @@ cli log(binary_search([1, 3, 5, 7, 9], 7)); // "3"
 ## 10. Potential & Future Directions
 **[THEORETICAL]**
 
-*   **Cognitive Architecture**: FATHOM's layering resembles human "Context/Task" switching. It could serve as a model for AI cognitive architectures.
-*   **Self-Hosting**: Because `Artifact` can compile code, FATHOM can redefine its own parser and runtime. It is theoretically "The Last Language."
+*   **Cognitive Architecture**: FINAL's layering resembles human "Context/Task" switching. It could serve as a model for AI cognitive architectures.
+*   **Self-Hosting**: Because `Artifact` can compile code, FINAL can redefine its own parser and runtime. It is theoretically "The Last Language."
 *   **Distributed Computing**: Since context is explicit, an Isolated Membrane could theoretically be serialized and executed on a remote machine seamlessly.

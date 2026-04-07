@@ -1,14 +1,15 @@
+```lua
 --TODOs:
 -- 1. Make Negi parser manifest and move existing parser code there. Currently it's nodes are all disconnected and just exist in main context, which just looks like some kid didn't put back toys inside a box.
 -- 2. Tuple load and Tuple context. This is the last major issue that keep me from testing phase.
 -- 2.1 Tuple keep mutations only if passed explicitly after pop_layer. The main difficulty of this is sometimes Tuple keeps mutations and sometimes don't?
+-- 2.2 Tuple should work simmilarly like KES layers, "store" parent and delta from parent Tuple.
 -- 3. Host representation. Lua have quite messy syntax and context, we need to nicely wrap this up inside some Manifest or Tuple.
 -- 4. Rework dynamic membrane as delayed behaivour: rework push_layer into always grounded. grounded - immediate, dynamic - verb, isolated - contained.
 
 return (function ()
-    --Idea: FATHOM: Framework for Authority Transactions Handling Operational Manifests
-    --Syntax: NegI - Negotiation Interface (the interface)
-    --System: FINAL - Final Is Not A Language (the substrate)
+    --Frontend: NegI - Negotiation Interface (the interface)
+    --Backend: FINAL - Framework for Intent Negotiation and Authority Logic (or Final Is Not A Language) (the substrate)
 
     -- This works more or less as ship of thesus, FINAL provides common interfaces for other manifests to communicate with each other in platform agnostic way
     local newstate = function () -- something similar to lua_newstate but for FINAL
@@ -37,7 +38,7 @@ return (function ()
                 views[2][views[1][index]] = nil
                 views[1][index] = nil end end
         local FLESH = { -- stands for "FINAL Local Environment Shared Handles"
-            FIS = { -- "FINAL Internal State" - used by particular manifests to pass around some data. Could be avoided via KES, but those values are quite commonly used, so it will influence performance.
+            FISH = { -- "FINAL Internal State Holder" - used by particular manifests to pass around some data. Could be avoided via KES, but those values are quite commonly used, so it will influence performance.
                 tail_context = nil, -- context from pop_layer
                 pending_labels = nil, -- "API" for labels, that are about to be loaded by something
             },
@@ -58,22 +59,22 @@ return (function ()
                     end
                     local rt = (type(ref) == "number") and self.bindings[ref] or self.labels[ref] -- we override the table depending on what we resolving
                     if (rt == nil) then return end -- the environment don't know about this binding so we exit early, this line is optional
-                    local m
+                    local m, c
                     if #rt.order.ol > #self.relevance.dl then -- NOTE: records store changes per each layer, so this checks if it's effective to do vertical or horizontal search traversal
                         for i = #self.relevance.dl, 1, -1 do -- inverse order, because we pick fresh ones, in order to hit early
                             local e = self.relevance.dl[i]
-                            if rt.order.lo[e] then m = rt.records[e]; break end -- we do not use rt.records[e], because it may contain nil, due to "namespace" reservation
+                            if rt.order.lo[e] then m = rt.records[e]; c = (#self.layers == e); break end -- we do not use rt.records[e], because it may contain nil, due to "namespace" reservation
                         end
                     else
                         for i = #rt.order.ol, 1, -1 do -- inverse order, because we pick fresh ones, in order to hit early
                             local e = rt.order.ol[i]
-                            if self.relevance.ld[e] then m = rt.records[e]; break end
+                            if self.relevance.ld[e] then m = rt.records[e]; c = (#self.layers == e); break end
                         end
                     end
                     if type(ref) == "string" and not partial then -- we assume that labels store actual indicies, labels are intentionally alias for indicies
                         return self:resolve(m)
                     end
-                    return m -- Manifest(lua table, that represnts it) or nil (or binding, if partial selected)
+                    return m, c -- Manifest(lua table, that represnts it) or nil (or binding, if partial selected)
                 end,
                 push_layer = function (self, parent, grounded, isolated, context)
                     --we make an exception for root layer, because there's nothing to isolate against
@@ -161,6 +162,122 @@ return (function ()
                     return c
                 end,
             },
+            KES_v2 = { -- "Knowledge Environment State" (considered finished, until bugs will be found)
+                layers = {{d = 1,c = {}}}, -- stack of references, string names ready for free (initial layer is preloaded)
+                labels = {lb = {}, bl = {}}, -- BiMap<label: String, bind: Number> holds labeled refences, bimap/not in bindings - because it's an extension that exist only for the user
+                bindings = {}, -- Array<bind: Number, {records: Map<layer_id: Integer, entry: Manifest>, order: BiMap<layer_id: Integer, order: Integer>}> holds references to data
+                relevance = { -- tracks what currently available in active context
+                    dl = {[1]=1}, -- Array<depth: Integer, layer_id: Integer> 
+                    ld = {[1]=1}}, -- Map<layer_id: Integer, depth: Integer> stores which layers are relevent to current context, mostly used as Set<layer_id: Integer>
+                isolations = { -- tracks where grounded layer must be used. basically ordered Set<depth: Integer>
+                    ["od"] = {}, -- Array<order: Integer, depth: Integer> 
+                    ["do"] = {}}, -- Map<depth: Integer, order: Integer> "this is the reason I hate keywords"
+
+                resolve = function (self, ref) -- note that strings are names for indicies
+                    if (type(ref) ~= "string" and type(ref) ~= "number") then
+                        error("FINAL: FLESH.KES:resolve - invalid argument, expected number or string", 2)
+                    end
+                    ref = (type(ref) == "number") and ref or self.labels.lb[ref] -- we override the table depending on what we resolving
+                    local rt = self.bindings[ref]
+                    if (rt == nil) then return end -- the environment don't know about this binding so we exit early, this line is optional
+                    local m, fh -- data, from_here
+                    if #rt.order.ol > #self.relevance.dl then -- NOTE: records store changes per each layer, so this checks if it's effective to do vertical or horizontal search traversal
+                        for d = #self.relevance.dl, 1, -1 do -- inverse order, because we pick fresh ones, in order to hit early
+                            local l = self.relevance.dl[d]
+                            if rt.order.lo[l] then m = rt.records[l]; fh = (#self.layers == l); break end -- we do not use rt.records[e], because it may contain nil, due to "namespace" reservation
+                        end
+                    else
+                        for o = #rt.order.ol, 1, -1 do -- inverse order, because we pick fresh ones, in order to hit early
+                            local l = rt.order.ol[o]
+                            if self.relevance.ld[l] then m = rt.records[l]; fh = (#self.layers == l); break end
+                        end
+                    end
+                    return m, fh -- Manifest(lua table, that represnts it) and if this info from current layer
+                end,
+                push_layer = function (self, parent, grounded, isolated, context) -- I need to remodel how parent is retrieved, otherwise making always grounded will break isolations, because dynamic will always have a parent of nearest isolation, besially it's time for a FISH update
+                    --we make an exception for root layer, because there's nothing to isolate against
+                    local l
+                    if (#self.layers > 0) then -- initial layer is preloaded, but I still add it if user decide to pop the root layer and there will be those who would like to do that for the fun of it (hi tsoding)
+                        if (type(parent) ~= "number") then error("FINAL: FLESH.KES:push_layer - parent<number> expected for explicit grounded, got "..type(parent), 2) end -- I also think that root layers should be definable if no parent specified
+                        local p_depth = (parent and self.layers[parent].d or 0) -- parent depth
+                        local iso_depth_i, iso_depth = #self.isolations.od, nil
+                        while ((self.isolations.od[iso_depth_i] or 0) > p_depth) -- we check if layer definition was outside of isolation. also binary search could be applied here
+                            iso_depth = self.isolations.od[iso_depth_i]
+                            iso_depth_i = iso_depth_i - 1 end
+                        if (iso_depth and not grounded) then -- if dynamic defined outside isolation, then it shouldn't consider effect of isolation
+                            parent = self.relevance.dl[iso_depth - 1] -- find parent of layer outside of isolation
+                            p_depth = (parent and (self.layers[parent].d) or 0) -- parent depth
+                            grounded = true end
+                        l = { -- new layer data
+                            d = (grounded and p_depth or (self.layers[#self.layers].d or 0)) + 1, -- new layer depth
+                            s = grounded and {r={},i={}} or nil, -- if there is grounded, then those are shadowed layers (r - relevance, i - isolation)
+                            c = context -- `c` is Set<reference: Number|String, exist: Boolean> references relvant to this context layer
+                    else l = {d = 1, s = grounded and {r={},i={}} or nil, c = (size and table.create) and table.create(0, size) or {}}} end
+                    if isolated then bimap_write(self.isolations, "od", #self.isolations.od+1, l.d) end -- isolated (external binding resolving, causes it to use resolving oblivious to effects from here)
+                    if grounded then -- grounded
+                        for i = #self.relevance.dl, l.d, -1 do -- exclude all layers between parent and new layer via depth
+                            l.s.r[#l.s.r+1] = self.relevance.dl[i] -- add shadowed layers (we can ask depth form them directly)
+                            bimap_write(self.relevance, "dl", i, nil) end -- removing irrelevant layers
+                        if iso_depth then -- if crossing or sealing isolations
+                        for i = #self.isolations.od, self.isolations["do"][iso_depth], -1 do -- iso_depth is calculated anyways, but I think I need to reorganize this code
+                            l.s.i[#l.s.i+1] = self.isolations.od[i] -- add shadowed isolations (we can ask depth form them directly)
+                            bimap_write(self.isolations, "od", i, nil) end end end -- removing irrelevant isolations
+                    self.layers[#self.layers+1] = l
+                    bimap_write(self.relevance, "ld", #self.layers, l.d)
+                    return #self.layers -- used if Sequence will define another Sequence
+                end,
+                pop_layer = function (self, migrate) -- P.S. while push and pop suggest stack structure, this isn't purely just that due to parent detours
+                    self.isolations["do"][self.layers[#self.layers].d] = nil -- lift isolation sandbox
+                    local shadowed_data = self.layers[#self.layers].s
+                    if shadowed_data then
+                        for _,e in ipairs(shadowed_data.r) do -- restoring shadowed context relevance
+                            bimap_write(self.relevance, "ld", e, self.layers[e].d) end
+                        for _,e in ipairs(shadowed_data.i) do -- restoring shadowed context isolations
+                            bimap_write(self.isolations, "od", #self.isolations.od + 1, e) end end
+                    if not migrate then
+                        for i,_ in pairs(self.layers[#self.layers].c) do -- removing references from bindings
+                            local db = self.bindings
+                            local rt = db[i]
+                            rt.records[#self.layers] = nil
+                            if (rt.order.lo[#self.layers] == rt.order.ol[#rt.order.ol]) then
+                                bimap_write(rt.order, "lo", #self.layers, nil)
+                            else error("KES:pop_layer - invalid layer in unload transaction query. [Z_Z] Currently I'm thinking to keep it as user error or make code for handling this.", 2) end
+                            if #rt.records <= 0 then db[i] = nil; bimap_write(self.labels, "bl", i, nil) end end end
+                    if (#self.layers > 0) then self.layers[#self.layers] = nil end -- removing layer
+                    return migrate and self.layers[#self.layers + 1].c or nil -- for tail calls it's preferably to return lifted context
+                end,
+                get_context = function (self) return #self.layers end, -- used by Sequence to memorise context for later use
+                write_entry = function (self, ref, m) -- reference : Number|String, [manifest: Any|Nil]
+                    local db = self.bindings
+                    if (type(ref) == "string") then 
+                        bimap_write(self.labels, "lb", ref, self.labels.lb[ref] or (#db + 1))
+                        ref = self.labels.lb[ref] 
+                    else ref = ref or (#db + 1) end
+                    db[ref] = db[ref] or { records = {}, order = {ol = {}, lo = {}} }
+                    db[ref].records[#self.layers] = m -- note that nil will reserve the place on layer
+                    bimap_write(db[ref].order, "lo", #self.layers, #db[ref].order.lo + 1)
+                    if not self.layers[#self.layers].c[ref] then -- if it's new binding for this context
+                        self.layers[#self.layers].c[ref] = true
+                    end return ref
+                end, -- entry writes could only happen in current context
+                direct_snapshot = function (self, layer_id, c)
+                    c = c or {}
+                    for i,_ in pairs(self.layers[layer_id].c) do
+                        c[i] = self.bindings[i].records[layer_id] end
+                    return c end,
+                inner_snapshot = function (self) -- used in tuple, in order to track writes
+                    return self.direct_snapshot(#self.layers)
+                end,
+                cview_snapshot = function (self, outer)
+                    local c = {}
+                    for i = #self.relevance.dl, 1, -1 do
+                        local e = self.relevance.dl[i]
+                        for i,_ in pairs(self.layers[e].c) do
+                            c[i] = c[i] or self.bindings[i].records[e] end end
+                    return c
+                end,
+                binding_label_get = function (self, b) return self.labels.bl[b] end, -- Used by Tuple to make label list.
+            },
             dispatch = function (self, lterm, rterm, protocol)
                 if lterm == nil then return end
                 if rterm and rterm.protocol and rterm.protocol.unhandled then
@@ -189,27 +306,21 @@ return (function ()
                                 fabk = unhc.state.artifact(lterm)
                             else fabk = self:dispatch(unhc, lterm, unhc.protocol) end
                             return self:dispatch(fabk, rterm, fabk.protocol)
-                        else
-                            return {
-                                protocol = self.KES.bindings[self.KES.bindings.Error.records[self.host_layer]].records[self.host_layer].state,
-                                state = {desc = "ENIMGA: FLESH:dispatch Error: rterm is outside of lterm protocol response capability"}}
-                        end
-                    else
-                        if protocol.unhandled then
+                        else return {
+                            protocol = self.KES.bindings[self.KES.bindings.Error.records[self.host_layer]].records[self.host_layer].state,
+                            state = {desc = "ENIMGA: FLESH:dispatch Error: rterm is outside of lterm protocol response capability"}} end
+                    elseif protocol.unhandled then
                             local artifact_p = self.KES.bindings[self.KES.bindings.Artifact.records[self.host_layer]].records[self.host_layer]
                             local unhc = self.KES:resolve(protocol.unhandled)
                             if self.capcheck(artifact_p, unhc) then
                                 return unhc.state.artifact(lterm)
                             else return self:dispatch(unhc, lterm, unhc.protocol) end
-                        else
-                            return lterm end end
-                else
-                    if lterm.protocol then return self:dispatch(lterm, rterm, lterm.protocol) else
-                        if rterm then return {
-                                protocol = self.KES.bindings[self.KES.bindings.Error.records[self.host_layer]].records[self.host_layer].state,
-                                state = {desc = "ENIMGA: FLESH:dispatch Error: missing protocol"}}
-                        else
-                            return lterm end end end 
+                        else return lterm end
+                elseif lterm.protocol then return self:dispatch(lterm, rterm, lterm.protocol) 
+                elseif rterm then return {
+                    protocol = self.KES.bindings[self.KES.bindings.Error.records[self.host_layer]].records[self.host_layer].state,
+                    state = {desc = "ENIMGA: FLESH:dispatch Error: missing protocol"}}
+                else return lterm end
             end,
             --env methods
             reset = function (self) end, -- inits defaults and other stuff
@@ -701,7 +812,7 @@ return (function ()
             state = {
                 responders = {
                     [":"] = {unhandled = p_artifact([[return function (self)
-                        FIS.pending_labels[self.state.name] = true
+                        FISH.pending_labels[self.state.name] = true
                         return { protocol = { handled = p_artifact("return function (self, arg) return arg end")} }end]])},
                     ["name"] = {unhandled = p_artifact([[return function (self)
                         return {
@@ -728,7 +839,7 @@ return (function ()
                         if labels then
                             if items then
                                 for i,e in pairs(labels) do
-                                    FIS.pending_labels[i] = true -- items[e]... FIS.pending_labels can't sustain this, I need different interface for passing pending context effects. I also have same problem in membranes
+                                    FISH.pending_labels[i] = true -- items[e]... FISH.pending_labels can't sustain this, I need different interface for passing pending context effects. I also have same problem in membranes
                                 end end end end]])},
                     ["."] = {unhandled = p_artifact([[return function (self) --TODO
                         self.state.labels
@@ -759,23 +870,23 @@ return (function ()
                 },
                 handled = p_artifact([[return function (self, arg)
                     local prods = self.state.prods
-                    FLESH.KES:push_layer(self.state.parent, self.state.grounded, self.state.isolated, FLESH.FIS.tail_context or table.create(0, #prods))
+                    FLESH.KES:push_layer(self.state.parent, self.state.grounded, self.state.isolated, FLESH.FISH.tail_context or table.create(0, #prods))
                     local pl = {}
-                    FIS.pending_labels = pl
+                    FISH.pending_labels = pl
                     local tuple_p = FLESH.KES.bindings[FLESH.KES.bindings.Tuple.records[FLESH.host_layer] ].records[FLESH.host_layer]
                     if (FLESH.capcheck(tuple_p, arg)) then FLESH:dispatch(arg,nil,arg.protocol.responders.load) end
-                    for i,e in pairs(FIS.pending_labels) do FLESH.KES:write_entry() end
+                    for i,e in pairs(FISH.pending_labels) do FLESH.KES:write_entry() end
                     for i,e in ipairs(prods) do
                         local s = FLESH.KES:resolve(e)
                         pl = {}
-                        FIS.pending_labels = pl
-                        FIS.def_grounded, FIS.def_isolated = false, false
+                        FISH.pending_labels = pl
+                        FISH.def_grounded, FISH.def_isolated = false, false
                         if (s.protocol.unhandled) then s = FLESH:dispatch(s, nil, s.protocol) end
                         for i,e in pairs(pl) do FLESH.KES:write_entry(i, s) end
                     end
-                    FIS.pending_labels = {} 
+                    FISH.pending_labels = {} 
                     local s = FLESH.KES:resolve(self.state.creturn)
-                    --FLESH.FIS.tail_context = FLESH.KES.layers[#FLESH.KES.layers]
+                    --FLESH.FISH.tail_context = FLESH.KES.layers[#FLESH.KES.layers]
                     if (s.protocol.unhandled) then s = FLESH:dispatch(s, nil, s.protocol) end -- no TCO due to inderection
                     FLESH.KES:pop_layer()
                     return s
@@ -793,11 +904,11 @@ return (function ()
                     --if content and content.state then
                         if (self.state.kind == 2) then -- grounded
                             -- store context, where this membrane was defined
-                            FIS.def_grounded = true -- should have probably done direct Sequence manipulation, instead of using FIS, but on other side I should add handled clause to sequence for specifying what mode to use
+                            FISH.def_grounded = true -- should have probably done direct Sequence manipulation, instead of using FISH, but on other side I should add handled clause to sequence for specifying what mode to use
                         elseif (self.state.kind == 1) then -- dynamic (or wrapper)
                             -- neutral, inherit active behaviour. If user desire default behaviour
                         elseif (self.state.kind == 0) then -- isolated
-                            FIS.def_isolated = true
+                            FISH.def_isolated = true
                             -- outer implicit mutation from inner is restricted at definition context layer
                         else
                             return {
@@ -863,7 +974,7 @@ return (function ()
                         local labels = table.create and table.create(0,#items) or {}
                         for i,e in ipairs(items) do
                             local pl = {}
-                            FIS.pending_labels = pl
+                            FISH.pending_labels = pl
                             local m = FLESH.KES:resolve(e)
                             proc_items[#proc_items+1] = FLESH:dispatch(m, nil, m.protocol)
                             for k,v in pairs(pl) do
@@ -880,7 +991,7 @@ return (function ()
                         unhandled = p_artifact([[return function (self)
                             return FLESH.KES:write_entry(nil, {
                                 protocol = FLESH.KES:resolve("Sequence").state,
-                                state = {grounded = FIS.def_grounded or false, isolated = FIS.def_isolated or false, prods = self.state.prods, creturn = self.state.creturn, parent = FLESH.get_context()}
+                                state = {grounded = FISH.def_grounded or false, isolated = FISH.def_isolated or false, prods = self.state.prods, creturn = self.state.creturn, parent = FLESH.get_context()}
                             })
                         end]])},
                     state = {
@@ -1231,3 +1342,4 @@ Structure : Manifest = [
     ]
 ];
 ]]
+```
