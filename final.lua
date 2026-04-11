@@ -246,6 +246,7 @@ return (function ()
             state = {
                 can = {
                     reload = {get = a_stubs[3]}},
+                    introspect = {get = a_stubs[4]}, -- can't decide on a name yet, should return ingridients for cooking the authority in question
                 call = a_stubs[4]}})
 
         FLESH.make.Artifact = function (chunk, chunkname, mode, env)
