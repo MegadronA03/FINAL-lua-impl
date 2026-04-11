@@ -713,6 +713,12 @@ return (function ()
                 end]])
             }
         })
+        --[[
+            Tuple_instance.state = {
+                labels = {}, -- BiMap<label: string, binding: number>
+                bindings = {}, -- Array<bind: number, {depend: table|nil, delta: any}>
+            }
+        ]]
         FLESH.KES:write_entry("Tuple", {
             protocol = {
                 ["in"] = {call = capability_check},
@@ -722,6 +728,7 @@ return (function ()
                 can = {
                     ["+"] = {call = p_artifact([[]])},
                     ["*"] = {call = p_artifact([[]])},
+                    delta = {get = p_artifact([[]])},
                     load = {get = p_artifact([[return function (self)
                         local labels, items = self.state.labels, self.state.items
                         if labels then
@@ -781,6 +788,9 @@ return (function ()
                 end]])
             }
         })
+        FLESH.KES:write_entry("Contain", {})
+        FLESH.KES:write_entry("Quote", {})
+        FLESH.KES:write_entry("Make", {})
         FLESH.KES:write_entry("Membrane", { -- controls effect(or context layer mutations) propogation of current context layer relative to other context layers
             protocol = {
                 ["in"] = {call = capability_check},
@@ -788,8 +798,9 @@ return (function ()
             },
             state = {
                 get = p_artifact([[return function (self) -- do consider that this is definition of something, meaning it paints
-                    local content = FLESH.KES:resolve(self.state.content)
-                    --if content and content.state then
+                    local content = self.state.content
+
+                    if content then
                         if (self.state.kind == 2) then -- grounded
                             -- store context, where this membrane was defined
                             FISH.def_grounded = true -- should have probably done direct Sequence manipulation, instead of using FISH, but on other side I should add call clause to sequence for specifying what mode to use
@@ -804,7 +815,7 @@ return (function ()
                                 state = {
                                     desc = "Membrane: Invalid kind"
                             }}
-                        end-- end
+                        end end
                     return FLESH:dispatch(content, nil, content.protocol)
                 end]]),
             }
@@ -820,8 +831,8 @@ return (function ()
                 },
                 get = p_artifact([[return function (self)
                     -- resolve terms: we hold references in state, not data
-                    local lt = FLESH.KES:resolve(self.state.lterm)
-                    local rt = FLESH.KES:resolve(self.state.rterm)
+                    local lt = self.state.lterm
+                    local rt = self.state.rterm
                     
                     return FLESH:dispatch(lt, rt, lt.protocol)
                 end]])
@@ -839,42 +850,40 @@ return (function ()
 
         local AST = { -- refactoring the Sequence generator for parser
             GAP = function () 
-                return "gap" -- we don't have anything on here
+                return nil -- we don't have anything on here
             end,
             NUMBER = function (value)
-                return FLESH.KES:write_entry(nil, {
+                return {
                     protocol = FLESH.KES.bindings[FLESH.KES.bindings.Number.records[FLESH.host_layer]].records[FLESH.host_layer].state,
-                    state = value}) end,
+                    state = value} end,
             STRING = function (value)
-                return FLESH.KES:write_entry(nil, {
+                return {
                     protocol = FLESH.KES.bindings[FLESH.KES.bindings.String.records[FLESH.host_layer]].records[FLESH.host_layer].state,
-                    state = value}) end,
+                    state = value} end,
             LABEL = function (name)
-                return FLESH.KES:write_entry(nil, {
+                return {
                     protocol = FLESH.KES.bindings[FLESH.KES.bindings.Label.records[FLESH.host_layer]].records[FLESH.host_layer].state,
-                    state = {name = name}}) end,
+                    state = {name = name}} end,
             TUPLE = function (items) -- TODO: this one isn't a tuple, but a constructor for it that creates environment for writing, like Sequence
-                return FLESH.KES:write_entry(nil, { -- constructor
+                return { -- constructor
                     protocol = {get = p_artifact([[return function (self)
                         -- it's easier to do the lua way on lua side, though later I'll need to repalce it with Manifest that don't create another artifact like this
                         local items = self.state.items
                         local proc_items = table.create and table.create(#items) or {}
                         local labels = table.create and table.create(0,#items) or {}
-                        for i,e in ipairs(items) do
+                        for i,m in ipairs(items) do
                             local pl = {}
                             FISH.pending_labels = pl
-                            local m = FLESH.KES:resolve(e)
                             proc_items[#proc_items+1] = FLESH:dispatch(m, nil, m.protocol)
                             for k,v in pairs(pl) do
                                 labels[k] = #proc_items end end
-                        return FLESH.KES:write_entry(nil,{
+                        return {
                             protocol = FLESH.KES.bindings[FLESH.KES.bindings.Tuple.records[FLESH.host_layer] ].records[FLESH.host_layer].state,
-                            state = {items = proc_items, labels = labels}
-                        })
+                            state = {items = proc_items, labels = labels}}
                     end]])},--ref to manifest for running an evaluation (that would be Sequence or Artifact).
-                    state = {items = items}}) end,
+                    state = {items = items}} end,
             SEQUENCE = function (prods, creturn) -- Sequence holds quoted stuff, so we are not doing any actual construction
-                return FLESH.KES:write_entry(nil,{
+                return {
                     protocol = {
                         get = p_artifact([[return function (self)
                             return FLESH.KES:write_entry(nil, {
@@ -884,15 +893,15 @@ return (function ()
                         end]])},
                     state = {
                         prods = prods, creturn = creturn
-                    }}) end,
+                    }} end,
             MEMBRANE = function (kind, content) 
-                return FLESH.KES:write_entry(nil, {
+                return {
                     protocol = FLESH.KES.bindings[FLESH.KES.bindings.Membrane.records[FLESH.host_layer]].records[FLESH.host_layer].state,
-                    state = {kind = kind, content = content}}) end,
+                    state = {kind = kind, content = content}} end,
             NEGOTIATION = function (lterm, rterm) -- evaluation units
-                return FLESH.KES:write_entry(nil, {
+                return {
                     protocol = FLESH.KES.bindings[FLESH.KES.bindings.Negotiation.records[FLESH.host_layer]].records[FLESH.host_layer].state,
-                    state = {lterm = lterm, rterm = rterm}}) end
+                    state = {lterm = lterm, rterm = rterm}} end
         }
 
         local manifest = { -- manifest structure reference ()
