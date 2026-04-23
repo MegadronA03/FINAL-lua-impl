@@ -117,7 +117,7 @@ return (function ()
                             h = {r={},i={}}, -- those are hidden layers (r - relevance, i - isolation)
                             s = {}, -- set of staged entries
                             c = context} -- `c` is Set<reference: Number|String, exist: Boolean> references relvant to this context layer
-                    else l = {d = 1, h = {r={},i={}}, c = (size and table.create) and table.create(0, size) or {}}} end
+                    else l = {d = 1, h = {r={},i={}}, c = (size and table.create) and table.create(0, size) or {}} end
                     if isolated then bimap_write(self.isolations, "od", #self.isolations.od+1, l.d) end -- isolated (external binding resolving, causes it to use resolving oblivious to effects from here)
                     for d = #self.relevance.dl, l.d, -1 do -- exclude all layers between parent and new layer via depth
                         l.h.r[#l.h.r+1] = self.relevance.dl[d] -- hide layers (we can ask depth form them directly)
