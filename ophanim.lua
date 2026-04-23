@@ -110,9 +110,8 @@ return (function ()
                 push_layer = function (self, parent, isolated, context) -- adds new layer
                     --we make an exception for root layer, because there's nothing to isolate against
                     local not_root = (#self.layers > 0)
-                    if not_root then -- initial layer is preloaded, but I still add it if user decide to pop the root layer and there will be those who would like to do that for the fun of it (hi tsoding)
-                        if (type(parent) ~= "number") then error("OPHANIM: FLESH.KES:push_layer - parent<number> expected, got "..type(parent), 2) end -- I also think that root layers should be definable if no parent specified
-                    end
+                    -- initial layer is preloaded, but I still add it if user decide to pop the root layer and there will be those who would like to do that for the fun of it (hi tsoding)
+                    if (not_root and (type(parent) ~= "number")) then error("OPHANIM: FLESH.KES:push_layer - parent<number> expected, got "..type(parent), 2) end -- I also think that root layers should be definable if no parent specified
                     local l = { -- new layer data
                         d = ((parent and not_root) and self.layers[parent].d or 0) + 1, -- new layer depth
                         h = {r={},i={}}, -- those are hidden layers (r - relevance, i - isolation)
