@@ -166,16 +166,14 @@ return (function ()
                     return parent
                 end,
                 get_context = function (self) return #self.layers end, -- used by Sequence to memorise context for later use
-                stage_entry = function (self, ref, callback)
+                stage_entry = function (self, ref, data)
                     ref = ref or (#self.bindings + 1) -- if no ref provided, pick new one
-                    self.layers[#self.layers].s[ref] = callback -- nil can remove callbacks [Z_Z] what if user changed their mind? This probably don't need any collision checks 
+                    self.layers[#self.layers].s[ref] = data -- nil can remove callbacks [Z_Z] what if user changed their mind? This probably don't need any collision checks 
                     return ref
                 end,
                 commit = function (self) -- apply staged changes
-                    local entries = {}
-                    for ref, callback in pairs(self.layers[#self.layers].s) do entries[ref] = callback() end
+                    for ref, data in pairs(self.layers[#self.layers].s) do self:write_entry(ref, data) end
                     self.layers[#self.layers].s = {}
-                    for ref, data in pairs(entries) do self:write_entry(ref, data) end
                 end,
                 write_entry = function (self, ref, m) -- reference : Number|String, [manifest: Any|Nil]
                     local db = self.bindings
@@ -228,38 +226,38 @@ return (function ()
                         if protocol.ask then -- TODO: ask implementation details
                             local artifact_p = self.KES.bindings[self.KES.bindings.Artifact.records[self.host_layer]].records[self.host_layer]
                             local label_p = self.KES.bindings[self.KES.bindings.Label.records[self.host_layer]].records[self.host_layer]
-                            local hanc = self.KES:resolve(protocol.ask)
-                            if self.capcheck(label_p, rterm) then if self.capcheck(artifact_p, hanc) then return hanc.state.artifact(lterm, rterm)
-                                else return self:dispatch(hanc, {
+                            local clause = protocol.ask
+                            if self.capcheck(label_p, rterm) then if self.capcheck(artifact_p, clause) then return clause.state.artifact(lterm, rterm)
+                                else return self:dispatch(clause, {
                                     protocol = frame_p.state,
                                     state = {items = {lterm, rterm}, labels = {"self", "arg"}}}) end end end
                         if protocol.call then
-                            if rterm.protocol and rterm.protocol.get then rterm = self:dispatch(rterm, nil) end -- 
+                            if rterm.protocol and rterm.protocol.get then rterm = self:dispatch(rterm, nil) end -- passive evaluation, because caller expect contents
                             local artifact_p = self.KES.bindings[self.KES.bindings.Artifact.records[self.host_layer]].records[self.host_layer]
                             local frame_p = self.KES.bindings[self.KES.bindings.Frame.records[self.host_layer]].records[self.host_layer]
-                            local hanc = self.KES:resolve(protocol.get)
-                            return self.capcheck(artifact_p, hanc) and
-                                hanc.state.artifact(lterm, rterm) or
-                                self:dispatch(hanc, {
+                            local clause = protocol.call
+                            return self.capcheck(artifact_p, clause) and
+                                clause.state.artifact(lterm, rterm) or
+                                self:dispatch(clause, {
                                     protocol = frame_p.state,
                                     state = {items = {lterm, rterm}, labels = {"self", "arg"}}}) -- needs some standartization on how this should be passed around, don't like hardcoded "self" and "arg"
                         elseif protocol.get then -- fallback to underlying manifest for an answer
                             local artifact_p = self.KES.bindings[self.KES.bindings.Artifact.records[self.host_layer]].records[self.host_layer]
                             local frame_p = self.KES.bindings[self.KES.bindings.Frame.records[self.host_layer]].records[self.host_layer]
-                            local unhc = self.KES:resolve(protocol.get)
-                            local fabk = self.capcheck(artifact_p, unhc) and
-                                unhc.state.artifact(lterm) or self:dispatch(unhc, lterm)
+                            local clause = protocol.get
+                            local fabk = self.capcheck(artifact_p, clause) and
+                                clause.state.artifact(lterm) or self:dispatch(clause, lterm)
                             return self:dispatch(fabk, rterm)
                         else return {
                             protocol = self.KES.bindings[self.KES.bindings.Error.records[self.host_layer]].records[self.host_layer].state,
                             state = {desc = "OPHANIM: FLESH:dispatch Error: rterm is outside of lterm protocol capability"}} end
                     elseif protocol.get then
-                            local artifact_p = self.KES.bindings[self.KES.bindings.Artifact.records[self.host_layer]].records[self.host_layer]
-                            local unhc = self.KES:resolve(protocol.get)
-                            if self.capcheck(artifact_p, unhc) then
-                                return unhc.state.artifact(lterm)
-                            else return self:dispatch(unhc, lterm) end
-                        else return lterm end
+                        local artifact_p = self.KES.bindings[self.KES.bindings.Artifact.records[self.host_layer]].records[self.host_layer]
+                        local clause = protocol.get
+                        if self.capcheck(artifact_p, clause) then
+                            return clause.state.artifact(lterm)
+                        else return self:dispatch(clause, lterm) end
+                    else return lterm end
                 elseif rterm then return {
                     protocol = self.KES.bindings[self.KES.bindings.Error.records[self.host_layer]].records[self.host_layer].state,
                     state = {desc = "OPHANIM: FLESH:dispatch Error: missing protocol"}}
@@ -761,8 +759,9 @@ return (function ()
                 },{
                     can = {
                         [":"] = {get = p_artifact([[return function (self)
-                            FLESH.KES:stage_entry(self.state.name)
-                            return { protocol = { call = p_artifact("return function (self, arg) return arg end")} }end]])},
+                            return { 
+                                protocol = { call = p_artifact("return function (self, arg) FLESH.KES:stage_entry(self.state, arg); return arg end")},
+                                state = self.state.name }end]])},
                         ["name"] = {get = p_artifact([[return function (self)
                             return {
                                 protocol = FLESH.KES.bindings[FLESH.KES.bindings.String.records[FLESH.host_layer] ].records[FLESH.host_layer].state,
@@ -784,7 +783,7 @@ return (function ()
                         load = {get = p_artifact([[return function (self)
                             local labels, bindings = self.state.labels, self.state.bindings
                             for i,e in pairs(bindings) do
-                                FLESH.KES:stage_entry(labels.bl[i] or i, function () return e.parent and e.parent[e.delta] or e.delta end) -- sometimes, user will want to load Frame inside a Frame.
+                                FLESH.KES:stage_entry(labels.bl[i] or i, e.parent and e.parent[e.delta] or e.delta) -- sometimes, user will want to load Frame inside a Frame.
                             end
                         end]])},
                         ["."] = {get = p_artifact([[return function (self) --TODO
