@@ -1,9 +1,8 @@
 --TODOs:
 -- 1. Make Negi Frame manifest and move existing parser code there. Currently it's nodes are all disconnected and just exist in main context, which just looks like some kid didn't put back toys inside a box.
 -- 2. Host representation. Lua have quite messy syntax and context, we need to nicely wrap this up inside some Manifest or Frame.
--- 3. Rework dynamic membrane as delayed behaivour: rework push_layer into always grounded. grounded - immediate, dynamic - verb, isolated - contained.
--- 4. Just finish manifests (Especially Error, to check if we getting stuck in halt)
--- 5. Tokens should keep track of current evaluated data by having access to the Host device (like Artifacts do), but here in PoC we just refere to it directly through FISH due to "it's convinient" and "that stuff is depandant on host"
+-- 3. Just finish manifests (Especially Error, to check if we getting stuck in halt)
+-- 4. Tokens should keep track of current evaluated data by having access to the Host device (like Artifacts do), but here in PoC we just refere to it directly through FISH due to "it's convinient" and "that stuff is depandant on host"
 
 -- Major problems that keep this project from testing phase are 3, 4
 
@@ -828,12 +827,49 @@ return (function ()
                 ["="] = {call = FLESH.make.Artifact([[]])}
             },{
                 get = FLESH.make.Artifact([[return function (self)
-                    -- TODO: Contain, Quote, Make are waiting for rework
+                    local parent = self.quoted and FLESH.KES:unquote_parent(self.parent) or self.parent
+                    FLESH.KES:push_layer(parent, self.contain)
+                    local output = FLESH:dispatch(self.content)
+                    FLESH.KES:pop_layer()
+                    return output
                 end]]),
             }), -- I think I should make distinction between Membranes, though parent Manifest with inherited capabilities will be here
-            Make = FLESH.make.Manifest({},{}), -- aka [] or grounded (because push_layer will be grounded by default)
-            Quote = FLESH.make.Manifest({},{}), -- aka {} or dynamic (because it will shift parent within isolation)
-            Contain = FLESH.make.Manifest({},{}), -- aka () or isolated
+            Make = FLESH.make.Manifest({ -- aka [] or grounded (because push_layer will be grounded by default)
+                ["in"] = {call = capability_check},
+                ["="] = {call = FLESH.make.Artifact([[]])}
+            },{
+                get = FLESH.make.Artifact([[return function (self)
+                    return FLESH:dispatch(FLESH.make.Manifest(FLESH.NegI.Manifests.Membrane.state, {
+                        parent = FLESH.KES:get_context(),
+                        contain = false,
+                        quoted = false,
+                        content = self.state}))
+                end]])
+            }),
+            Quote = FLESH.make.Manifest({ -- aka {} or dynamic (because it will shift parent within isolation)
+                ["in"] = {call = capability_check},
+                ["="] = {call = FLESH.make.Artifact([[]])}
+            },{
+                get = FLESH.make.Artifact([[return function (self)
+                    return FLESH.make.Manifest(FLESH.NegI.Manifests.Membrane.state, {
+                        parent = FLESH.KES:get_context(),
+                        contain = false,
+                        quoted = true,
+                        content = self.state})
+                end]])
+            }),
+            Contain = FLESH.make.Manifest({ -- aka () or isolated
+                ["in"] = {call = capability_check},
+                ["="] = {call = FLESH.make.Artifact([[]])}
+            },{
+                get = FLESH.make.Artifact([[return function (self)
+                    return FLESH:dispatch(FLESH.make.Manifest(FLESH.NegI.Manifests.Membrane.state, {
+                        parent = FLESH.KES:get_context(),
+                        contain = true,
+                        quoted = false,
+                        content = self.state}))
+                end]])
+            }),
             Negotiation = FLESH.make.Manifest({
                 can = {
                     ["in"] = {call = capability_check},
@@ -894,8 +930,8 @@ return (function ()
                     state = {prods = prods, creturn = creturn}} end,
             MEMBRANE = function (kind, content) 
                 return { -- TODO: rework is pending
-                    protocol = FLESH.NegI.Manifests.Membrane.state,
-                    state = {kind = kind, content = content}} end,
+                    protocol = FLESH.NegI.Manifests[({"Contain", "Quote", "Make"})[kind+1]].state,
+                    state = content} end,
             NEGOTIATION = function (lterm, rterm) -- evaluation units
                 return {
                     protocol = FLESH.NegI.Manifests.Negotiation.state,

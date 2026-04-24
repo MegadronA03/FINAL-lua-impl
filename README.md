@@ -16,6 +16,5 @@ The `ophanim.lua` (backend name) is a 1 file library for Lua 5.5. You can either
 # 0.0.1 roadmap (working PoC version)
 1. Make Negi Frame manifest and move existing parser code there. Currently it's nodes are all disconnected and just exist in main context, which just looks like some kid didn't put back toys inside a box.
 2. Host representation. Lua have quite messy syntax and context, we need to nicely wrap this up inside some Manifest or Frame.
-3. Rework dynamic membrane as delayed behaivour: rework push_layer into always grounded. grounded - immediate, dynamic - verb, isolated - contained.
-4. Just finish manifests (Especially Error, to check if we getting stuck in halt)
-5. Tokens should keep track of current evaluated data by having access to the Host device (like Artifacts do), but here in PoC we just refere to it directly through FISH due to "it's convinient" and "that stuff is depandant on host"
+3. Just finish manifests (Especially Error, to check if we getting stuck in halt)
+4. Tokens should keep track of current evaluated data by having access to the Host device (like Artifacts do), but here in PoC we just refere to it directly through FISH due to "it's convinient" and "that stuff is depandant on host"
