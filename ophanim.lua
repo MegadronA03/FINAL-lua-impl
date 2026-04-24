@@ -229,7 +229,7 @@ return (function ()
                             local frame_p = self.NegI.Manifests.Frame
                             local clause = protocol.ask
                             if self.capcheck(label_p, rterm) then if self.capcheck(artifact_p, clause) then return clause.state.artifact(lterm, rterm)
-                                else return self:dispatch(clause, FLESH.make.Frame({self = lterm, arg = rterm})) end end end
+                                else return self:dispatch(clause, self.make.Frame({self = lterm, arg = rterm})) end end end
                         if protocol.call then
                             if rterm.protocol and rterm.protocol.get then rterm = self:dispatch(rterm, nil) end -- passive evaluation, because caller expect contents
                             local artifact_p = self.NegI.Manifests.Artifact
@@ -237,7 +237,7 @@ return (function ()
                             local clause = protocol.call
                             return self.capcheck(artifact_p, clause) and
                                 clause.state.artifact(lterm, rterm) or
-                                self:dispatch(clause, FLESH.make.Frame({self = lterm, arg = rterm})) -- needs some standartization on how this should be passed around, don't like hardcoded "self" and "arg"
+                                self:dispatch(clause, self.make.Frame({self = lterm, arg = rterm})) -- needs some standartization on how this should be passed around, don't like hardcoded "self" and "arg"
                         elseif protocol.get then -- fallback to underlying manifest for an answer
                             local artifact_p = self.NegI.Manifests.Artifact
                             local frame_p = self.NegI.Manifests.Frame
@@ -245,9 +245,7 @@ return (function ()
                             local fabk = self.capcheck(artifact_p, clause) and
                                 clause.state.artifact(lterm) or self:dispatch(clause, lterm)
                             return self:dispatch(fabk, rterm)
-                        else return {
-                            protocol = self.NegI.Manifests.Error,
-                            state = {desc = "OPHANIM: FLESH:dispatch Error: rterm is outside of lterm protocol capability"}} end
+                        else return self.make.Error("OPHANIM: FLESH:dispatch Error: rterm is outside of lterm protocol capability") end
                     elseif protocol.get then
                         local artifact_p = self.NegI.Manifests.Artifact
                         local clause = protocol.get
@@ -255,9 +253,7 @@ return (function ()
                             return clause.state.artifact(lterm)
                         else return self:dispatch(clause, lterm) end
                     else return lterm end
-                elseif rterm then return {
-                    protocol = self.NegI.Manifests.Error,
-                    state = {desc = "OPHANIM: FLESH:dispatch Error: missing protocol"}}
+                elseif rterm then return self.make.Error("OPHANIM: FLESH:dispatch Error: missing protocol")
                 else return lterm end
             end,
             --env methods
@@ -304,7 +300,7 @@ return (function ()
                 can = {
                     reload = {get = "stub"}},
                     introspect = {get = "stub"}, -- can't decide on a name yet, should return ingridients for cooking the authority in question
-                call = "stub"}})
+                call = "stub"}}
         
         FLESH.make.Artifact = function (chunk, chunkname, mode, env)
             chunkname = chunkname or "chunk"
@@ -814,9 +810,9 @@ return (function ()
                 ["="] = {call = FLESH.make.Artifact([[]])}
             },{
                 get = FLESH.make.Artifact([[return function (self)
-                    local parent = self.quoted and FLESH.KES:unquote_parent(self.parent) or self.parent
-                    FLESH.KES:push_layer(parent, self.contain)
-                    local output = FLESH:dispatch(self.content)
+                    local parent = self.state.quoted and FLESH.KES:unquote_parent(self.state.parent) or self.state.parent
+                    FLESH.KES:push_layer(parent, self.state.contain)
+                    local output = FLESH:dispatch(self.state.content)
                     FLESH.KES:pop_layer()
                     return output
                 end]]),
