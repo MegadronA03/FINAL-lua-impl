@@ -1,13 +1,11 @@
 --TODOs:
 -- 1. Make Negi Frame manifest and move existing parser code there. Currently it's nodes are all disconnected and just exist in main context, which just looks like some kid didn't put back toys inside a box.
--- 2. Frame load and Frame context.
--- 2.1 Frame should work simmilarly like KES layers, "store" parent and delta from parent Frame.
--- 3. Host representation. Lua have quite messy syntax and context, we need to nicely wrap this up inside some Manifest or Frame.
--- 4. Rework dynamic membrane as delayed behaivour: rework push_layer into always grounded. grounded - immediate, dynamic - verb, isolated - contained.
--- 5. Just finish manifests (Especially Error, to check if we getting stuck in halt)
--- 6. Tokens should keep track of current evaluated data by having access to the Host device (like Artifacts do), but here in PoC we just refere to it directly through FISH due to "it's convinient" and "that stuff is depandant on host"
+-- 2. Host representation. Lua have quite messy syntax and context, we need to nicely wrap this up inside some Manifest or Frame.
+-- 3. Rework dynamic membrane as delayed behaivour: rework push_layer into always grounded. grounded - immediate, dynamic - verb, isolated - contained.
+-- 4. Just finish manifests (Especially Error, to check if we getting stuck in halt)
+-- 5. Tokens should keep track of current evaluated data by having access to the Host device (like Artifacts do), but here in PoC we just refere to it directly through FISH due to "it's convinient" and "that stuff is depandant on host"
 
--- Major problems that keep this project from testing phase are 2, 4, 5
+-- Major problems that keep this project from testing phase are 3, 4
 
 return (function ()
     --Frontend: NegI - Negotiation Interface (the interface, what is developed, that's the front name)
@@ -44,7 +42,7 @@ return (function ()
                 -- probably reserved for parser tokens, but I might leave that up to Tokens themselves
             },
             KES = { -- "Knowledge Environment State" (considered finished, until bugs will be found)
-                layers = {{d = 1,h = {r={},i={}},s = {},c = {}}}, -- stack of references, string names ready for free (initial layer is preloaded)
+                layers = {{d = 1,h = {r={},i={}},s = {a={},e={},r={}},c = {}}}, -- stack of references, string names ready for free (initial layer is preloaded)
                 labels = {lb = {}, bl = {}}, -- BiMap<label: String, bind: Number> holds labeled refences, bimap/not in bindings - because it's an extension that exist only for the user
                 bindings = {}, -- Array<bind: Number, {records: Map<layer_id: Integer, entry: Manifest>, order: BiMap<layer_id: Integer, order: Integer>}> holds references to data
                 relevance = { -- tracks what currently available in active context
@@ -75,38 +73,6 @@ return (function ()
                     end
                     return m, fh -- Manifest(lua table, that represnts it) and if this info from current layer
                 end,
-                push_layer_old = function (self, parent, grounded, isolated, context) -- I need to remodel how parent is retrieved, otherwise making always grounded will break isolations, because dynamic will always have a parent of nearest isolation, besially it's time for a FISH update
-                    --we make an exception for root layer, because there's nothing to isolate against
-                    local l
-                    if (#self.layers > 0) then -- initial layer is preloaded, but I still add it if user decide to pop the root layer and there will be those who would like to do that for the fun of it (hi tsoding)
-                        if (type(parent) ~= "number") then error("OPHANIM: FLESH.KES:push_layer - parent<number> expected for explicit grounded, got "..type(parent), 2) end -- I also think that root layers should be definable if no parent specified
-                        local p_depth = (parent and self.layers[parent].d or 0) -- parent depth
-                        local iso_depth_i, iso_depth = #self.isolations.od, nil
-                        while ((self.isolations.od[iso_depth_i] or 0) > p_depth) -- we check if layer definition was outside of isolation. also binary search could be applied here
-                            iso_depth = self.isolations.od[iso_depth_i]
-                            iso_depth_i = iso_depth_i - 1 end
-                        if (iso_depth and not grounded) then -- if dynamic defined outside isolation, then it shouldn't consider effect of isolation
-                            parent = self.relevance.dl[iso_depth - 1] -- find parent of layer outside of isolation
-                            p_depth = (parent and (self.layers[parent].d) or 0) -- parent depth
-                            grounded = true end
-                        l = { -- new layer data
-                            d = (grounded and p_depth or (self.layers[#self.layers].d or 0)) + 1, -- new layer depth
-                            h = grounded and {r={},i={}} or nil, -- if there is grounded, then those are hidden layers (r - relevance, i - isolation)
-                            c = context -- `c` is Set<reference: Number|String, exist: Boolean> references relvant to this context layer
-                    else l = {d = 1, s = grounded and {r={},i={}} or nil, c = (size and table.create) and table.create(0, size) or {}}} end
-                    if isolated then bimap_write(self.isolations, "od", #self.isolations.od+1, l.d) end -- isolated (external binding resolving, causes it to use resolving oblivious to effects from here)
-                    if grounded then -- grounded
-                        for i = #self.relevance.dl, l.d, -1 do -- exclude all layers between parent and new layer via depth
-                            l.h.r[#l.h.r+1] = self.relevance.dl[i] -- add shadowed layers (we can ask depth form them directly)
-                            bimap_write(self.relevance, "dl", i, nil) end -- removing irrelevant layers
-                        if iso_depth then -- if crossing or sealing isolations
-                        for i = #self.isolations.od, self.isolations["do"][iso_depth], -1 do -- iso_depth is calculated anyways, but I think I need to reorganize this code
-                            l.h.i[#l.h.i+1] = self.isolations.od[i] -- add shadowed isolations (we can ask depth form them directly)
-                            bimap_write(self.isolations, "od", i, nil) end end end -- removing irrelevant isolations
-                    self.layers[#self.layers+1] = l
-                    bimap_write(self.relevance, "ld", #self.layers, l.d)
-                    return #self.layers -- used if Sequence will define another Sequence
-                end,
                 push_layer = function (self, parent, isolated, context) -- adds new layer
                     --we make an exception for root layer, because there's nothing to isolate against
                     local not_root = (#self.layers > 0)
@@ -115,7 +81,7 @@ return (function ()
                     local l = { -- new layer data
                         d = ((parent and not_root) and self.layers[parent].d or 0) + 1, -- new layer depth
                         h = {r={},i={}}, -- those are hidden layers (r - relevance, i - isolation)
-                        s = {}, -- set of staged entries
+                        s = {a={},e={},r={}}, -- staged entries data: aliases(aka refs), entries and reserved aliases
                         c = context or {}} -- `c` is Set<reference: Number|String, exist: Boolean> references relvant to this context layer
                     if isolated then bimap_write(self.isolations, "od", #self.isolations.od+1, l.d) end -- isolated (external binding resolving, causes it to use resolving oblivious to effects from here)
                     for d = #self.relevance.dl, l.d, -1 do -- exclude all layers between parent and new layer via depth
@@ -130,23 +96,28 @@ return (function ()
                 end,
                 pop_layer = function (self, frame) -- P.S. while push and pop suggest stack structure, this isn't purely just that due to parent detours
                     local l = self.layers[#self.layers]
+                    local db = self.bindings
                     if self.isolations["do"][l.d] then bimap_write(self.isolations, "do", l.d, nil) end -- lift isolation sandbox (if there is any)
                     local hidden_layers = l.h -- there is always hidden entries
                     for _,e in ipairs(hidden_layers.r) do -- restoring hidden context relevance
                         bimap_write(self.relevance, "ld", e, self.layers[e].d) end
                     for i = #hidden_layers.i, 1, -1 do -- restoring hidden context isolations
                         bimap_write(self.isolations, "od", #self.isolations.od + 1, hidden_layers.i[i]) end
-                    --local frame_state = {labels = {}, bindings = {}}
-                    for i,_ in pairs(self.layers[#self.layers].c) do -- removing references from bindings
-                        local db = self.bindings
-                        local rt = db[i]
+                    local frame_state = {labels = {lb={},bl={}}, bindings = {}}
+                    local frame_entry = frame and function (self, b, rt)
+                        frame_state.bindings[#frame_state.bindings+1] = {delta = rt.records[#self.layers]}
+                        bimap_write(frame_state.labels, "bl", #frame_state.bindings, self.labels[b])
+                    end or function (self, b, rt) end
+                    for b,_ in pairs(self.layers[#self.layers].c) do -- removing references from bindings
+                        local rt = db[b]
+                        frame_entry(self, b, rt)
                         rt.records[#self.layers] = nil
                         if (rt.order.lo[#self.layers] == rt.order.ol[#rt.order.ol]) then
                             bimap_write(rt.order, "lo", #self.layers, nil)
                         else error("KES:pop_layer - invalid layer in unload transaction query. [Z_Z] Currently I'm thinking to keep it as user error or make code for handling this.", 2) end
-                        if #rt.records <= 0 then db[i] = nil; bimap_write(self.labels, "bl", i, nil) end end
+                        if #rt.records <= 0 then db[b] = nil; bimap_write(self.labels, "bl", b, nil) end end
                     if (#self.layers > 0) then self.layers[#self.layers] = nil end -- removing layer
-                    --return nil 
+                    return frame and frame_state or nil 
                 end,
                 morph_layer = function (self, parent, isolated, context) -- push_layer, but just rebases current layer. for "pass" use. this is to remove migrate from pop_layer and rework context in push_layer
                     -- I also not sure if `pass` should keep previous context layer, which this function is implies to do, because `pass` created with explicit data transfer in mind, 
@@ -165,14 +136,49 @@ return (function ()
                     return parent
                 end,
                 get_context = function (self) return #self.layers end, -- used by Sequence to memorise context for later use
-                stage_entry = function (self, ref, data)
-                    ref = ref or (#self.bindings + 1) -- if no ref provided, pick new one
-                    self.layers[#self.layers].s[ref] = data -- nil can remove callbacks [Z_Z] what if user changed their mind? This probably don't need any collision checks 
-                    return ref
+                stage_resolve_id = function (self, ref) return self.layers[#self.layers].s.a[ref] end
+                stage_entry = function (self, data, stage_id) -- when `ref` is present, it updates info that references existing entry
+                    local stage = self.layers[#self.layers].s
+                    if stage_id and stage_id > #stage.e then error("FLESH.KES:stage_entry - stage_id points to undefined entry.", 2) end
+                    if stage_id then -- explicit abscense of stage_id, will make a new entry
+                        stage.e[stage_id].d = data
+                        if stage.e[stage_id].r then
+                            stage.r[stage.e[stage_id].r] = nil
+                            stage.e[stage_id].r = nil end
+                    else
+                        stage_id = #stage.e+1
+                        stage.e[stage_id] = {a={},r=nil,d=data} end -- a - aliases (holds both anonym bindings and label names), r - reserved (even nil might be the data, so we need to track this separately), d - data
+                    return stage_id
                 end,
-                commit = function (self) -- apply staged changes
-                    for ref, data in pairs(self.layers[#self.layers].s) do self:write_entry(ref, data) end
-                    self.layers[#self.layers].s = {}
+                stage_alias = function (self, new_ref, stage_id)  -- when `ref` is present, it updates info that references existing entry
+                    local stage = self.layers[#self.layers].s
+                    if stage_id and stage_id > #stage.e then error("FLESH.KES:stage_alias - stage_id points to undefined entry.", 2) end
+                    if stage_id then -- explicit abscense of stage_id, will make a new entry
+                        stage.e[stage_id].a[#stage.e[stage_id].a +1] = new_ref
+                    else
+                        stage_id = #stage.e+1
+                        stage.r[#stage.r +1] = stage_id
+                        stage.e[stage_id] = {a={new_ref},r=#stage.r,d=nil} end -- a - aliases (holds both anonym bindings and label names), r - reserved (even nil might be the data, so we need to track this separately), d - data
+                    stage.a[new_ref] = stage_id -- label can point only to one place, we don't discourage user from that
+                    return stage_id
+                end,
+                stage_fill_reserve = function (self, data)
+                    local stage = self.layers[#self.layers].s
+                    for _,i in ipairs(stage.r) do self:stage_entry(data, i) end
+                end,
+                commit = function (self, add_unnamed) -- apply staged changes
+                    local stage = self.layers[#self.layers].s
+                    local wue = add_unnamed and function (self, e)
+                        e.b[#e.b+1] = self:write_entry(nil, e.d)
+                    end or function (self, e) end
+                    for _, e in ipairs(stage.e) do
+                        e.b = {}
+                        if (#e.a > 0) then for _, name in ipairs(e.a) do
+                            e.b[#e.b+1] = self:write_entry(name, e.d) end
+                        else wue(self, e) end end
+                    local output = self.layers[#self.layers].s
+                    self.layers[#self.layers].s = {a={},e={},r={}}
+                    return output -- should be a map of entry -> binding, but for now it's fine
                 end,
                 write_entry = function (self, ref, m) -- reference : Number|String, [manifest: Any|Nil]
                     local db = self.bindings
@@ -220,12 +226,12 @@ return (function ()
                 if protocol then
                     if rterm then
                         if protocol.can then -- both "can" and "ask" may not be fulfilled unlike "can" or "get" or abscense of protocol clauses
-                            local label_p = self.KES.bindings[self.KES.bindings.Label.records[self.host_layer]].records[self.host_layer] -- we use direct access, because this stuff will depend on furst record anyways
+                            local label_p = self.NegI.Manifests.Label -- we use direct access, because this stuff will depend on furst record anyways
                             if self.capcheck(label_p, rterm) then return {protocol = protocol.can[rterm.state.name], state = lterm.state} end end  -- TODO: we need to check if it's exist
                         if protocol.ask then -- `ask` clause exist solely for cases when Manifest need to handle arbitrary labels, like vector axis swizzling, field "modification" (the field might be abscent) and etc
-                            local artifact_p = self.KES.bindings[self.KES.bindings.Artifact.records[self.host_layer]].records[self.host_layer]
-                            local label_p = self.KES.bindings[self.KES.bindings.Label.records[self.host_layer]].records[self.host_layer]
-                            local frame_p = self.KES.bindings[self.KES.bindings.Frame.records[self.host_layer]].records[self.host_layer]
+                            local artifact_p = self.NegI.Manifests.Artifact -- currently it's tightly coupled, I'll need to slightly rework this
+                            local label_p = self.NegI.Manifests.Label
+                            local frame_p = self.NegI.Manifests.Frame
                             local clause = protocol.ask
                             if self.capcheck(label_p, rterm) then if self.capcheck(artifact_p, clause) then return clause.state.artifact(lterm, rterm)
                                 else return self:dispatch(clause, {
@@ -233,8 +239,8 @@ return (function ()
                                     state = {items = {lterm, rterm}, labels = {"self", "arg"}}}) end end end
                         if protocol.call then
                             if rterm.protocol and rterm.protocol.get then rterm = self:dispatch(rterm, nil) end -- passive evaluation, because caller expect contents
-                            local artifact_p = self.KES.bindings[self.KES.bindings.Artifact.records[self.host_layer]].records[self.host_layer]
-                            local frame_p = self.KES.bindings[self.KES.bindings.Frame.records[self.host_layer]].records[self.host_layer]
+                            local artifact_p = self.NegI.Manifests.Artifact
+                            local frame_p = self.NegI.Manifests.Frame
                             local clause = protocol.call
                             return self.capcheck(artifact_p, clause) and
                                 clause.state.artifact(lterm, rterm) or
@@ -242,39 +248,30 @@ return (function ()
                                     protocol = frame_p.state,
                                     state = {items = {lterm, rterm}, labels = {"self", "arg"}}}) -- needs some standartization on how this should be passed around, don't like hardcoded "self" and "arg"
                         elseif protocol.get then -- fallback to underlying manifest for an answer
-                            local artifact_p = self.KES.bindings[self.KES.bindings.Artifact.records[self.host_layer]].records[self.host_layer]
-                            local frame_p = self.KES.bindings[self.KES.bindings.Frame.records[self.host_layer]].records[self.host_layer]
+                            local artifact_p = self.NegI.Manifests.Artifact
+                            local frame_p = self.NegI.Manifests.Frame
                             local clause = protocol.get
                             local fabk = self.capcheck(artifact_p, clause) and
                                 clause.state.artifact(lterm) or self:dispatch(clause, lterm)
                             return self:dispatch(fabk, rterm)
                         else return {
-                            protocol = self.KES.bindings[self.KES.bindings.Error.records[self.host_layer]].records[self.host_layer].state,
+                            protocol = self.NegI.Manifests.Error,
                             state = {desc = "OPHANIM: FLESH:dispatch Error: rterm is outside of lterm protocol capability"}} end
                     elseif protocol.get then
-                        local artifact_p = self.KES.bindings[self.KES.bindings.Artifact.records[self.host_layer]].records[self.host_layer]
+                        local artifact_p = self.NegI.Manifests.Artifact
                         local clause = protocol.get
                         if self.capcheck(artifact_p, clause) then
                             return clause.state.artifact(lterm)
                         else return self:dispatch(clause, lterm) end
                     else return lterm end
                 elseif rterm then return {
-                    protocol = self.KES.bindings[self.KES.bindings.Error.records[self.host_layer]].records[self.host_layer].state,
+                    protocol = self.NegI.Manifests.Error,
                     state = {desc = "OPHANIM: FLESH:dispatch Error: missing protocol"}}
                 else return lterm end
             end,
             --env methods
             reset = function (self) end, -- inits defaults and other stuff
         }
-
-        --FLESH.host_layer = FLESH.KES:push_layer() -- we will use it in order to reference stuff at the base
-        FLESH.host_layer = 1 -- we already have layer in KES, so no need for push_layer
-        for _,e in pairs({
-            "Native","Artifact","Error","Protocol","Manifest","gap","Number",
-            "String","Label","Frame","Sequence","Membrane","Negotiation"
-        }) do
-            FLESH.KES:write_entry(e) -- we can directly write stuff, without explicitly defining binding
-        end
 
         -- Artifact assumptions:
         -- on call it recieves 2 manifests (tabels, not KES IDs): self, arg
@@ -290,7 +287,6 @@ return (function ()
 
         FLESH.make = {} -- Manifest constructors
 
-        local a_stubs = {FLESH.KES:write_entry(),FLESH.KES:write_entry(),FLESH.KES:write_entry(),FLESH.KES:write_entry()}
         FLESH.make.Manifest = function (protocol, state) -- protocols are still eager, but it's possible to do lazy clause access via "get" manifests (like quoted labels). here we just doing it via metatable because it's convinient, and I'm making a PoC, not final product yet
             local m = {protocol = protocol, state = state}
             
@@ -310,16 +306,18 @@ return (function ()
             return m
         end
 
-        FLESH.KES:write_entry("Artifact", { -- Artifact for handling external authority
+        FLESH.NegI = {Manifests = {}} -- the NegI assets
+
+        FLESH.NegI.Manifests.Artifact = { -- Artifact for handling external authority
             protocol = {
                 can = {
-                    ["in"] = {call = a_stubs[1]},
-                    ["="] = {call = a_stubs[2]}}},
+                    ["in"] = {call = "stub"},
+                    ["="] = {call = "stub"}}},
             state = {
                 can = {
-                    reload = {get = a_stubs[3]}},
-                    introspect = {get = a_stubs[4]}, -- can't decide on a name yet, should return ingridients for cooking the authority in question
-                call = a_stubs[4]}})
+                    reload = {get = "stub"}},
+                    introspect = {get = "stub"}, -- can't decide on a name yet, should return ingridients for cooking the authority in question
+                call = "stub"}})
         
         FLESH.make.Artifact = function (chunk, chunkname, mode, env)
             chunkname = chunkname or "chunk"
@@ -327,8 +325,7 @@ return (function ()
             if (a) then a, e = pcall(a) end
             if (e) then return FLESH.make.Manifest(
                 "Error", {desc = "Artifact: Failed to load "..chunkname.." due to host error: "..e}) end
-            --protocol = FLESH.KES.bindings[FLESH.KES.bindings.Artifact.records[FLESH.host_layer] ].records[FLESH.host_layer].state,
-            return FLESH.make.Manifest("Artifact", {
+            return FLESH.make.Manifest(FLESH.NegI.Manifests.Artifact.state, {
                     chunk = chunk,
                     chunkname = chunkname,
                     mode = mode,
@@ -357,65 +354,21 @@ return (function ()
             return true end
 
         --common between protocol manifests
-        local capability_check = FLESH.KES:write_entry(a_stubs[1], FLESH.make.Artifact([[return function (self, arg)
-            return FLESH.capcheck(self, arg) and FLESH.KES:resolve("true") or FLESH.KES:resolve("false") end]], "capcheck"))
-
-        FLESH.KES:write_entry(a_stubs[2], FLESH.make.Artifact([[return function (self, arg) end]])) -- should make artifact creation off state, table, Frame and string
-        FLESH.KES:write_entry(a_stubs[3], FLESH.make.Artifact([[return function (self)
-            return FLESH.make.Artifact(self.state.chunk, self.state.chunkname, self.state.mode, self.state.env) end]]))
-        FLESH.KES:write_entry(a_stubs[4], FLESH.make.Artifact([[return function(self, arg)
+        local capability_check = FLESH.make.Artifact([[return function (self, arg)
+            return FLESH.capcheck(self, arg) and FLESH.KES:resolve("true") or FLESH.KES:resolve("false") end]], "capcheck")
+        
+        FLESH.NegI.Manifests.Artifact.protocol.can["in"] = capability_check
+        FLESH.NegI.Manifests.Artifact.protocol.can["="] = FLESH.make.Artifact([[return function (self, arg) end]])
+        FLESH.NegI.Manifests.Artifact.state.can.reload = FLESH.make.Artifact([[return function (self)
+            return FLESH.make.Artifact(self.state.chunk, self.state.chunkname, self.state.mode, self.state.env) end]])
+        FLESH.NegI.Manifests.Artifact.state.can.introspect = FLESH.make.Artifact([[return function (self, arg) end]])
+        FLESH.NegI.Manifests.Artifact.state.call = FLESH.make.Artifact([[return function(self, arg)
             local tunp = unpack or table.unpack
-            return self.state.artifact(tunp(arg)) end]]))
-
-        local p_artifact = function (...) return FLESH.KES:write_entry(nil, FLESH.make.Artifact(...)) end
-
-        local host_name = FLESH.KES:write_entry() -- we reserve space for the host name 
-
-        FLESH.KES:write_entry("Native", { -- should represent state during introspection, to make it hostile
-            protocol = {
-                ["in"] = {call = capability_check}},
-            state = {
-                can = {
-                    import = {get = nil}}}}) -- lua allows that, but compiled/static languages have a possibility of not working out like that
-
-        FLESH.KES:write_entry("Error", { -- Error "as value"
-            protocol = {
-                ["in"] = {call = capability_check},
-                ["="] = {call = p_artifact([[]])}},
-            state = {
-                can = {
-                    name = {get = p_artifact([[]])}, 
-                    desc = {get = p_artifact([[return function (self)
-                        return { -- UNFINISHED
-                            protocol = FLESH.KES:resolve("String").state,
-                            state = tostring(self.state.desc)}
-                    end]])}, 
-                    caller = {get = p_artifact([[]])},
-                    trace = {get = p_artifact([[]])},
-                },    
-
-            }
-        })
-
-        FLESH.KES:write_entry("Token", { -- adds parser data to values
-            protocol = {["in"] = {call = capability_check}},
-            state = {
-                can = {
-                    token = {can = {
-                        root = {get = p_artifact([[]])}, -- references root Token from where it is
-                        parent = {get = p_artifact([[]])}, -- return parent Token (probably won't add this, because I don't store that)
-                        element = {get = p_artifact([[]])}, -- text representation of Token
-                        id = {get = nil}, -- it's id (probably will remove it)
-                        position = {get = nil}, -- position relative to root Token text representation
-                        content = {get = nil}, -- return Frame with it's child Tokens (probably won't add this, because I store that in opaque non-uniform states)
-                    }}
-                },
-                get = p_artifact([[return function (self) return self.state.token end]]), -- fallback to standard token operation
-        }})
+            return self.state.artifact(tunp(arg)) end]])
 
         -- no implicit conversions, this is only between this specific implementation
         local make_trans_op = function (op)
-            return p_artifact([[return function (self, arg)
+            return FLESH.make.Artifact([[return function (self, arg)
                 if (FLESH.capcheck({state = self.protocol},arg)) then -- 2nd value might have different protocol, I think I'll need to rework this into lua general value protocol check or something.
                     return FLESH:import(self.state ]]..op..[[ arg.state)
                 else
@@ -424,12 +377,12 @@ return (function ()
             end]])
         end
         local make_trans = function (trans)
-            return p_artifact([[return function (self)
+            return FLESH.make.Artifact([[return function (self)
                 return FLESH:import(]]..trans..[[(self.state))
             end]])
         end
         local make_host_res_init = function (host_type)
-            return p_artifact([[return function (self, arg)
+            return FLESH.make.Artifact([[return function (self, arg)
                 -- wrap host resource manifest
                 if (FLESH.capcheck(self,arg)) then return arg end -- literal uses same protocol, so we just passing
                 if (type(arg) == "]]..host_type..[[") then return {protocol = self.state,state = arg}} end
@@ -519,7 +472,7 @@ return (function ()
                         ult = {call = nil}, -- math.ult (m, n)
                         to = {
                             can = {
-                                string = {get = p_artifact([[return function (self)
+                                string = {get = FLESH.make.Artifact([[return function (self)
                                     return { -- UNFINISHED
                                         protocol = FLESH.KES:resolve(host_types.state.items[host_types.state.labels.string]).state,
                                         state = tostring(self.state)}
@@ -535,7 +488,7 @@ return (function ()
                         ["+"] = {call = make_trans_op("..")},
                         ["=="] = {call = make_trans_op("==")},
                         ["~="] = {call = make_trans_op("~=")},
-                        format = {call = p_artifact([[return function (self, arg)
+                        format = {call = FLESH.make.Artifact([[return function (self, arg)
                             -- check if arg is frame and go on
                         ]])},
                         size = {get = make_trans("string.len")},
@@ -544,7 +497,7 @@ return (function ()
                         reverse = {get = make_trans("string.reverse")},
                         to = {
                             can = {
-                                number = {get = p_artifact([[return function (self)
+                                number = {get = FLESH.make.Artifact([[return function (self)
                                     return {
                                         protocol = FLESH.KES:resolve(host_types.state.items[host_types.state.labels.number]).state,
                                         state = tonumber(self.state)}
@@ -558,9 +511,9 @@ return (function ()
                     ["="] = make_host_res_init("function")}},
                 state = {
                     can = {
-                        dump = {get = p_artifact([[]])}
+                        dump = {get = FLESH.make.Artifact([[]])}
                     },
-                    call = p_artifact([[return function (self, arg)
+                    call = FLESH.make.Artifact([[return function (self, arg)
                         local frame_p
                         return FLESH:import(self.state(table.unpack(args)))
                     end]])
@@ -571,17 +524,17 @@ return (function ()
                         ["="] = make_host_res_init("thread")}},
                 state = {
                     can = {
-                        close = {get = p_artifact([[]])},
-                        isyieldable = {get = p_artifact([[]])},
-                        resume = {get = p_artifact([[]])},
-                        status = {get = p_artifact([[]])},
-                        wrap = {get = p_artifact([[]])},
+                        close = {get = FLESH.make.Artifact([[]])},
+                        isyieldable = {get = FLESH.make.Artifact([[]])},
+                        resume = {get = FLESH.make.Artifact([[]])},
+                        status = {get = FLESH.make.Artifact([[]])},
+                        wrap = {get = FLESH.make.Artifact([[]])},
                     }
                 }}),
             table = FLESH.KES:write_entry(nil, {protocol = { -- this also somewhat capability wildcard, but the importer uses different protocol for table, if it's table isn't empty
                     can = {
                         ["in"] = {call = capability_check},
-                        ["="] = p_artifact([[return function (self, arg)
+                        ["="] = FLESH.make.Artifact([[return function (self, arg)
                             -- create from table literal and native
                             if (FLESH.capcheck(self,arg)) then return arg end -- literal uses same protocol, so we just passing
                             if (type(arg) == "table") then return {protocol = self.state,state = arg}} end
@@ -595,7 +548,7 @@ return (function ()
                         size = {call = make_trans("#")},
                         
                     },
-                    call = p_artifact([[return function (self, arg)
+                    call = FLESH.make.Artifact([[return function (self, arg)
                         -- TODO: we somehow need to check if arg is a number or a manifest
                         return FLESH:import(self[arg.state]) -- we need to chanage the intent of import, so it would use this data
                     end]])
@@ -603,7 +556,7 @@ return (function ()
             unknown = FLESH.KES:write_entry(nil, {protocol = {
                     can = {
                         ["in"] = {call = capability_check},
-                        ["="] = p_artifact([[return function (self, arg) -- UNFINISHED
+                        ["="] = FLESH.make.Artifact([[return function (self, arg) -- UNFINISHED
                             return {protocol = self.state,state = arg}
                         end]])}},
                 state = {}}),
@@ -711,16 +664,44 @@ return (function ()
         xpcall -- Host
         ]]
 
-        -- maybe I should also think on how do I transfer dependencies? seems like Frame should load for a moment of content negotiation, I just can't wrap around my head around using KES as context canvas.
-        FLESH.KES:write_entry("NegI", FLESH.make.Frame({ -- this is the core shared interface (or "corelib" if you'd like to call it like that), the abstract foundation for any logic that will come next. TODO: I need to move NegI protocols inside of it
-            Native = FLESH.make.Manifest({},{}),
-            Artifact = FLESH.make.Manifest({},{}),
-            Error = FLESH.make.Manifest({},{}),
-            Token = FLESH.make.Manifest({},{}),
+        FLESH.NegI.Manifests = { -- this is the core shared interface (or "corelib" if you'd like to call it like that), the abstract foundation for any logic that will come next. TODO: I need to move NegI protocols inside of it
+            Native = FLESH.make.Manifest({ -- should represent state during introspection, to make it hostile
+                ["in"] = {call = capability_check}},{
+                can = {
+                    import = {get = nil}} -- lua allows that, but compiled/static languages have a possibility of not working out like that
+            }),
+            Artifact = FLESH.NegI.Manifests.Artifact, -- Host authority descriptor, seek definition before this
+            Error = FLESH.make.Manifest({ -- Error is always as valua
+                ["in"] = {call = capability_check},
+                ["="] = {call = FLESH.make.Artifact([[]])}},{
+                can = {
+                    name = {get = FLESH.make.Artifact([[]])}, 
+                    desc = {get = FLESH.make.Artifact([[return function (self)
+                        return { -- UNFINISHED
+                            protocol = FLESH.KES:resolve("String").state,
+                            state = tostring(self.state.desc)}
+                    end]])}, 
+                    caller = {get = FLESH.make.Artifact([[]])},
+                    trace = {get = FLESH.make.Artifact([[]])},
+                },    
+            }),
+            Token = FLESH.make.Manifest({["in"] = {call = capability_check}},{ -- adds metainfo that's used by `Error`s, so you can read the exact place of where your code failed
+                can = {
+                    token = {can = {
+                        root = {get = FLESH.make.Artifact([[]])}, -- references root Token from where it is
+                        parent = {get = FLESH.make.Artifact([[]])}, -- return parent Token (probably won't add this, because I don't store that)
+                        element = {get = FLESH.make.Artifact([[]])}, -- text representation of Token
+                        id = {get = nil}, -- it's id (probably will remove it)
+                        position = {get = nil}, -- position relative to root Token text representation
+                        content = {get = nil}, -- return Frame with it's child Tokens (probably won't add this, because I store that in opaque non-uniform states)
+                    }}
+                },
+                get = FLESH.make.Artifact([[return function (self) return self.state.token end]]), -- fallback to standard token operation
+            }),
             Manifest = FLESH.make.Manifest({ -- Protocol for directly constructing Manifests
                 can = {
                     ["in"] = {call = capability_check}, -- capability_check is shared artifact 
-                    ["="] = {call = p_artifact([[return function (self, arg) 
+                    ["="] = {call = FLESH.make.Artifact([[return function (self, arg) 
                         
                         --we take Frame from arg
                         --make manifest for the KES with actual lua tables
@@ -733,16 +714,16 @@ return (function ()
                 },{}),-- thats "any" type, there's nothing to check, because everything is a Manifest
             Protocol = FLESH.make.Manifest({ -- Protocol for new Protocols
                     can = {
-                        of = {call = p_artifact([[]])}, -- will return the protocol of some Manifest that could be used to check other Manifests 
+                        of = {call = FLESH.make.Artifact([[]])}, -- will return the protocol of some Manifest that could be used to check other Manifests 
                         ["in"] = {call = capability_check}, -- capability_check is shared artifact
-                        ["="] = {call = p_artifact([[]])}
+                        ["="] = {call = FLESH.make.Artifact([[]])}
                     },
-                    call = p_artifact([[]]), -- artifact for creating new protocol manifests
+                    call = FLESH.make.Artifact([[]]), -- artifact for creating new protocol manifests
                 },{
                     ["in"] = capability_check
                 }),
             ["//"] = FLESH.make.Manifest({
-                call = p_artifact("return function (self, arg) return { protocol = { call = p_artifact(\"return function (self, arg) return arg end\")}} end")},{}),
+                call = FLESH.make.Artifact("return function (self, arg) return { protocol = { call = FLESH.make.Artifact(\"return function (self, arg) return arg end\")}} end")},{}),
             pass = FLESH.make.Manifest({ -- TODO: explicitly ends Sequence with appropriate data. monad where first is to where and 2nd is data
                 call = artifact_p([[return function (self, arg)
                     
@@ -750,48 +731,51 @@ return (function ()
             },{}),
             ["false"] = FLESH.make.Manifest("Number",0), -- sugar
             ["true"] = FLESH.make.Manifest("Number",1), -- sugar
-            gap = FLESH.make.Manifest({},{}),
+            gap = FLESH.make.Manifest({},{}), -- it's fine, that's how it should be
             Number = FLESH.make.Manifest({},{}), -- need to make generic host agnostic number representation (maybe even Rational out of 2 BigIntegers or just BigInteger to not conflate these 2 for the compilation process)
             String = FLESH.make.Manifest({},{}), -- some languages might have to emulate this
             Label = FLESH.make.Manifest({ -- it's job is to represent a get query from KES to load manifests
+                can = {
                     ["in"] = {call = capability_check},
-                    ["="] = {call = p_artifact([[]])}
-                },{
+                    ["="] = {call = FLESH.make.Artifact([[]])}
+                }},{
                     can = {
-                        [":"] = {get = p_artifact([[return function (self)
+                        [":"] = {get = FLESH.make.Artifact([[return function (self)
+                            FLESH.KES:stage_alias(self.state.name)
                             return { 
-                                protocol = { call = p_artifact("return function (self, arg) FLESH.KES:stage_entry(self.state, arg); return arg end")},
+                                protocol = { call = FLESH.make.Artifact("return function (self, arg) return arg end")},
                                 state = self.state.name }end]])},
-                        ["name"] = {get = p_artifact([[return function (self)
+                        ["name"] = {get = FLESH.make.Artifact([[return function (self)
                             return {
-                                protocol = FLESH.KES.bindings[FLESH.KES.bindings.String.records[FLESH.host_layer] ].records[FLESH.host_layer].state,
+                                protocol = FLESH.NegI.Manifests.String.state,
                                 state = self.state.name}
                         end]])},
                     },
-                    get = p_artifact([[return function (self) 
+                    get = FLESH.make.Artifact([[return function (self) 
                         return FLESH.KES:resolve(self.state.name)
                     end]])
             }),
             Frame = FLESH.make.Manifest({
+                can = {
                     ["in"] = {call = capability_check},
-                    ["="] = {call = p_artifact([[]])}
-                },{
+                    ["="] = {call = FLESH.make.Artifact([[]])}
+                }},{
                     can = {
-                        ["+"] = {call = p_artifact([[]])},
-                        ["*"] = {call = p_artifact([[]])},
-                        delta = {get = p_artifact([[]])},
-                        load = {get = p_artifact([[return function (self)
+                        ["+"] = {call = FLESH.make.Artifact([[]])},
+                        ["*"] = {call = FLESH.make.Artifact([[]])},
+                        delta = {get = FLESH.make.Artifact([[]])},
+                        load = {get = FLESH.make.Artifact([[return function (self)
                             local labels, bindings = self.state.labels, self.state.bindings
                             for i,e in pairs(bindings) do
-                                FLESH.KES:stage_entry(labels.bl[i] or i, e.parent and e.parent[e.delta] or e.delta) -- sometimes, user will want to load Frame inside a Frame.
+                                FLESH.KES:stage_alias(labels.bl[i] or i, FLESH.KES:stage_entry(e.parent and e.parent[e.delta] or e.delta)) -- sometimes, user will want to load Frame inside a Frame.
                             end
                         end]])},
-                        ["."] = {get = p_artifact([[return function (self) --TODO
+                        ["."] = {get = FLESH.make.Artifact([[return function (self) --TODO
                             self.state.labels
                         end]])},
                     },
-                    call = p_artifact([[return function (self, arg) 
-                        local num_p = FLESH.KES.bindings[FLESH.KES.bindings.Number.records[FLESH.host_layer] ].records[FLESH.host_layer]
+                    call = FLESH.make.Artifact([[return function (self, arg) 
+                        local num_p = FLESH.NegI.Manifests.Number
                         if (FLESH.capcheck(num_p, arg)) then
 
                         else if (FLESH.capcheck({state = self.protocol}, arg) and arg) then -- slicing in python style
@@ -802,43 +786,50 @@ return (function ()
                     end]])
             }),
             Sequence = FLESH.make.Manifest({
+                can = {
                     ["in"] = {call = capability_check},
-                    ["="] = {call = p_artifact([[]])}
-                },{
+                    ["="] = {call = FLESH.make.Artifact([[]])}
+                }},{
                     can = {
-                        prods = {get = p_artifact([[]])}, -- in order to get raw data, @ must be used
-                        creturn = {get = p_artifact([[]])}, -- in order to get raw data, @ must be used
-                        introspect = {get = p_artifact([[]])}
+                        prods = {get = FLESH.make.Artifact([[]])}, -- in order to get raw data, @ must be used
+                        creturn = {get = FLESH.make.Artifact([[]])}, -- in order to get raw data, @ must be used
+                        introspect = {get = FLESH.make.Artifact([[]])}
                     },
-                    call = p_artifact([[return function (self, arg)
+                    call = FLESH.make.Artifact([[return function (self, arg)
                         local prods = self.state.prods
-                        FLESH.KES:push_layer(self.state.parent, self.state.isolated, table.create and table.create(0, #prods) or nil)
-                        local frame_p = FLESH.KES.bindings[FLESH.KES.bindings.Frame.records[FLESH.host_layer] ].records[FLESH.host_layer]
+                        --FLESH.KES:push_layer(self.state.parent, self.state.isolated, table.create and table.create(0, #prods) or nil) -- preparing for membrane rework, 
+                        local frame_p = FLESH.NegI.Manifests.Frame
                         if (FLESH.capcheck(frame_p, arg)) then FLESH:dispatch(arg,nil,arg.protocol.can.load) end
                         for i,e in ipairs(prods) do
-                            local s = FLESH.KES:resolve(e)
                             FISH.def_isolated = false
-                            if (s.protocol.get) then s = FLESH:dispatch(s, nil) end
-                            FLESH.KES:commit()
-                        end
-                        local s = FLESH.KES:resolve(self.state.creturn)
-                        if (s.protocol.get) then s = FLESH:dispatch(s, nil) end
-                        FLESH.KES:pop_layer() -- for TCO we probably'll need Frame from pop_layer
-                        return s
+                            if (e.protocol.get) then
+                                e = FLESH:dispatch(e, nil)
+                                FLESH.KES:stage_fill_reserve(e)
+                                FLESH.KES:commit() end end
+                        --FLESH.KES:pop_layer() -- for TCO we probably'll need Frame from pop_layer
+                        return FLESH:dispatch(self.state.creturn, nil)
                     end]])
             }),
-            Membrane = FLESH.make.Manifest({},{}), -- I think I should make distinction between Membranes, though parent Manifest with inherited capabilities will be here
+            Membrane = FLESH.make.Manifest({ -- represent the layers and how they affect environment
+                ["in"] = {call = capability_check},
+                ["="] = {call = FLESH.make.Artifact([[]])}
+            },{
+                get = FLESH.make.Artifact([[return function (self)
+                    -- TODO: Contain, Quote, Make are waiting for rework
+                end]]),
+            }), -- I think I should make distinction between Membranes, though parent Manifest with inherited capabilities will be here
             Make = FLESH.make.Manifest({},{}), -- aka [] or grounded (because push_layer will be grounded by default)
             Quote = FLESH.make.Manifest({},{}), -- aka {} or dynamic (because it will shift parent within isolation)
             Contain = FLESH.make.Manifest({},{}), -- aka () or isolated
             Negotiation = FLESH.make.Manifest({
+                can = {
                     ["in"] = {call = capability_check},
-                    ["="] = {call = p_artifact([[]])}
-                },{
+                    ["="] = {call = FLESH.make.Artifact([[]])}
+                }},{
                     bindings = {
 
                     },
-                    get = p_artifact([[return function (self)
+                    get = FLESH.make.Artifact([[return function (self)
                         -- resolve terms: we hold references in state, not data
                         local lt = self.state.lterm
                         local rt = self.state.rterm
@@ -846,46 +837,12 @@ return (function ()
                         return FLESH:dispatch(lt, rt)
                     end]])
             }),
-        }))
+        }
+    
+        FLESH.KES:write_entry("NegI", FLESH.make.Frame(FLESH.NegI.Manifests))
 
         --FLESH.KES:write_entry("Number", FLESH.KES:resolve(host_types.state.items[host_types.state.labels.number])) -- the logic behind it and lua number is different (because boolean is a Number with limited ammount of states), I should change that.
         --FLESH.KES:write_entry("String", FLESH.KES:resolve(host_types.state.items[host_types.state.labels.string]))
-        --[[
-            Frame_instance.state = {
-                labels = {}, -- BiMap<label: string, binding: number>
-                bindings = {}, -- Array<bind: number, {parent: table, delta: number}|{delta: any}>
-            }
-        ]]
-        FLESH.KES:write_entry("Membrane", { -- controls effect(or context layer mutations) propogation of current context layer relative to other context layers
-            protocol = {
-                ["in"] = {call = capability_check},
-                ["="] = {call = p_artifact([[]])}
-            },
-            state = {
-                get = p_artifact([[return function (self) -- do consider that this is definition of something, meaning it paints
-                    local content = self.state.content
-                    -- TODO: Contain, Quote, Make are waiting for rework
-                    if content then
-                        if (self.state.kind == 2) then -- grounded
-                            -- store context, where this membrane was defined
-                            
-                        elseif (self.state.kind == 1) then -- dynamic (or wrapper)
-                            -- neutral, inherit active behaviour. If user desire default behaviour
-
-                        elseif (self.state.kind == 0) then -- isolated
-                            FISH.def_isolated = true
-                            -- outer implicit mutation from inner is restricted at definition context layer
-                        else
-                            return {
-                                protocol = FLESH.assets.protocols.Error,
-                                state = {
-                                    desc = "Membrane: Invalid kind"
-                            }}
-                        end end
-                    return FLESH:dispatch(content, nil)
-                end]]),
-            }
-        })
 
         local AST = { -- refactoring the Sequence generator for parser
             GAP = function () 
@@ -893,52 +850,42 @@ return (function ()
             end,
             NUMBER = function (value)
                 return {
-                    protocol = FLESH.KES.bindings[FLESH.KES.bindings.Number.records[FLESH.host_layer]].records[FLESH.host_layer].state,
+                    protocol = FLESH.NegI.Manifests.Number.state,
                     state = value} end,
             STRING = function (value)
                 return {
-                    protocol = FLESH.KES.bindings[FLESH.KES.bindings.String.records[FLESH.host_layer]].records[FLESH.host_layer].state,
+                    protocol = FLESH.NegI.Manifests.String.state,
                     state = value} end,
             LABEL = function (name)
                 return {
-                    protocol = FLESH.KES.bindings[FLESH.KES.bindings.Label.records[FLESH.host_layer]].records[FLESH.host_layer].state,
+                    protocol = FLESH.NegI.Manifests.Label.state,
                     state = {name = name}} end,
             FRAME = function (items) -- TODO: this one isn't a frame, but a frame constructor, that creates environment for writing, like Sequence
                 return { -- constructor
-                    protocol = {get = p_artifact([[return function (self)
+                    protocol = {get = FLESH.make.Artifact([[return function (self)
                         -- it's easier to do the lua way on lua side, though later I'll need to repalce it with Manifest that don't create another artifact like this
                         -- TODO: rework under `labels` and `bindings`
                         local items = self.state.items
-                        local proc_items = table.create and table.create(#items) or {}
                         local labels = table.create and {lb=table.create(0,#items),bl=table.create(0,#items)} or {lb={},bl={}}
-                        FLESH.KES:push_layer(FLESH.KES:get_context(), true)
-                        for i,m in ipairs(items) do dispatch(m, nil) end
-                        FLESH.KES:commit()
-                        FLESH.KES:pop_layer(true) -- TODO: we need pop_layer somehow to return Frame
+                        --FLESH.KES:push_layer(FLESH.KES:get_context(), true)
+                        for i,m in ipairs(items) do FLESH.KES:stage_fill_reserve(dispatch(m, nil)) end
+                        FLESH.KES:commit(true) -- this could be used mid Sequence, this emergently allow to shuffle labels around
                         return {
-                            protocol = FLESH.KES.bindings[FLESH.KES.bindings.Frame.records[FLESH.host_layer] ].records[FLESH.host_layer].state,
-                            state = {items = proc_items, labels = labels}}
+                            protocol = FLESH.NegI.Manifests.Frame.state,
+                            state = FLESH.KES:inner_snapshot()} -- this might be slower, compared to just poping a Frame from layer, but as long as it works without hacks, I'm satisfied
                     end]])},--ref to manifest for running an evaluation (that would be Sequence or Artifact).
                     state = {items = items}} end,
             SEQUENCE = function (prods, creturn) -- Sequence holds quoted stuff, so we are not doing any actual construction
                 return {
-                    protocol = {
-                        get = p_artifact([[return function (self)
-                            return FLESH.KES:write_entry(nil, {
-                                protocol = FLESH.KES:resolve("Sequence").state,
-                                state = {isolated = FISH.def_isolated or false, prods = self.state.prods, creturn = self.state.creturn, parent = FLESH.get_context()}
-                            })
-                        end]])},
-                    state = {
-                        prods = prods, creturn = creturn
-                    }} end,
+                    protocol = FLESH.NegI.Manifests.Sequence.state,
+                    state = {prods = prods, creturn = creturn}} end,
             MEMBRANE = function (kind, content) 
-                return {
-                    protocol = FLESH.KES.bindings[FLESH.KES.bindings.Membrane.records[FLESH.host_layer]].records[FLESH.host_layer].state,
+                return { -- TODO: rework is pending
+                    protocol = FLESH.NegI.Manifests.Membrane.state,
                     state = {kind = kind, content = content}} end,
             NEGOTIATION = function (lterm, rterm) -- evaluation units
                 return {
-                    protocol = FLESH.KES.bindings[FLESH.KES.bindings.Negotiation.records[FLESH.host_layer]].records[FLESH.host_layer].state,
+                    protocol = FLESH.NegI.Manifests.Negotiation.state,
                     state = {lterm = lterm, rterm = rterm}} end
         }
 
