@@ -234,9 +234,7 @@ return (function ()
                             local frame_p = self.NegI.Manifests.Frame
                             local clause = protocol.ask
                             if self.capcheck(label_p, rterm) then if self.capcheck(artifact_p, clause) then return clause.state.artifact(lterm, rterm)
-                                else return self:dispatch(clause, {
-                                    protocol = frame_p.state,
-                                    state = {items = {lterm, rterm}, labels = {"self", "arg"}}}) end end end
+                                else return self:dispatch(clause, FLESH.make.Frame({self = lterm, arg = rterm})) end end end
                         if protocol.call then
                             if rterm.protocol and rterm.protocol.get then rterm = self:dispatch(rterm, nil) end -- passive evaluation, because caller expect contents
                             local artifact_p = self.NegI.Manifests.Artifact
@@ -244,9 +242,7 @@ return (function ()
                             local clause = protocol.call
                             return self.capcheck(artifact_p, clause) and
                                 clause.state.artifact(lterm, rterm) or
-                                self:dispatch(clause, {
-                                    protocol = frame_p.state,
-                                    state = {items = {lterm, rterm}, labels = {"self", "arg"}}}) -- needs some standartization on how this should be passed around, don't like hardcoded "self" and "arg"
+                                self:dispatch(clause, FLESH.make.Frame({self = lterm, arg = rterm})) -- needs some standartization on how this should be passed around, don't like hardcoded "self" and "arg"
                         elseif protocol.get then -- fallback to underlying manifest for an answer
                             local artifact_p = self.NegI.Manifests.Artifact
                             local frame_p = self.NegI.Manifests.Frame
@@ -323,8 +319,12 @@ return (function ()
             chunkname = chunkname or "chunk"
             local a, e = load(chunk, "OPHANIM:"..chunkname, mode, env)
             if (a) then a, e = pcall(a) end
-            if (e) then return FLESH.make.Manifest(
-                "Error", {desc = "Artifact: Failed to load "..chunkname.." due to host error: "..e}) end
+            if (e) then
+                local error_p = FLESH.NegI.Manifests.Error
+                if error_p then return FLESH.make.Manifest(
+                    error_p.state, {desc = "Artifact: Failed to load "..chunkname.." due to host error: "..e})
+                else print("in ```lua\n"..chunk.."\n```"); error("FLESH.make.Artifact - Artifact construction failed on NegI sys init due to host error:"..tostring(e), 2) end
+            end
             return FLESH.make.Manifest(FLESH.NegI.Manifests.Artifact.state, {
                     chunk = chunk,
                     chunkname = chunkname,
@@ -403,6 +403,19 @@ return (function ()
         end
 
         FLESH.make.Error = function (desc) return FLESH.make.Manifest("Error", {desc = desc}) end -- this one should hold more info than currently it is. Prefereably it should be able to store an Error chain, this will be a common occurence in NegI.
+
+        FLESH.make.Number = function (val)
+            return (({
+                number = function (num) return FLESH.make.Manifest(FLESH.NegI.Manifests.Number.state, num) end,
+                boolean = function (bool) return bool and FLESH.NegI.Manifests.true or FLESH.NegI.Manifests.false end 
+            })[type(val)] or (function (val) return FLESH.make.Error("invalid type (rework this error)") end))(val)
+        end
+
+        FLESH.make.String = function (val) 
+            return (type(val) == "string") and 
+                FLESH.make.Manifest(FLESH.NegI.Manifests.String.state, val) or 
+                FLESH.make.Error("invalid type (rework this error)")
+        end
 
         local host_protocols = FLESH.make.Frame({ -- while it's a mapping table, OPHANIM fundamentally disagree with lua on type existance, so for example userdata can't be capchecked
             ["nil"] = FLESH.KES:write_entry(nil, {protocol = {},state = {}}),
