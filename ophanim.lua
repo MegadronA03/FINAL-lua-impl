@@ -301,9 +301,35 @@ return (function ()
                     introspect = {get = "stub"}, -- can't decide on a name yet, should return ingridients for cooking the authority in question
                 call = "stub"}}
         
-        FLESH.make.Artifact = function (chunk, chunkname, mode, env)
+        local artifact_env = {
+            -- Essential Lua Language Internals
+            pairs = pairs,
+            ipairs = ipairs,
+            next = next,
+            select = select,
+            type = type,
+            tostring = tostring,
+            tonumber = tonumber,
+            unpack = unpack or table.unpack,
+            error = error,
+            pcall = pcall,
+
+            -- I need to add function for explicit import/deep copy, because currently it's not sadboxed properly
+            table = table,
+            math = math,
+            string = string,
+            coroutine = coroutine,
+            io = io,
+            os = os,
+        
+            -- The OPHANIM Substrate
+            -- Artifacts MUST use this to interact with the system.
+            FLESH = FLESH, 
+        }
+
+        FLESH.make.Artifact = function (chunk, chunkname, mode)
             chunkname = chunkname or "chunk"
-            local a, e = load(chunk, "OPHANIM:"..chunkname, mode, env)
+            local a, e = load(chunk, "OPHANIM:"..chunkname, mode, artifact_env)
             if (a) then a, e = pcall(a) end
             if (e) then
                 local error_p = FLESH.NegI.Manifests.Error
