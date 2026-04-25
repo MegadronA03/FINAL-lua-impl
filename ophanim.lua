@@ -353,30 +353,6 @@ return (function ()
             local tunp = unpack or table.unpack
             return self.state.artifact(tunp(arg)) end]])
 
-        -- no implicit conversions, this is only between this specific implementation
-        local make_trans_op = function (op)
-            return FLESH.make.Artifact([[return function (self, arg)
-                if (FLESH.capcheck({state = self.protocol},arg)) then -- 2nd value might have different protocol, I think I'll need to rework this into lua general value protocol check or something.
-                    return FLESH:import(self.state ]]..op..[[ arg.state)
-                else
-                    return -- Error manifest
-                end
-            end]])
-        end
-        local make_trans = function (trans)
-            return FLESH.make.Artifact([[return function (self)
-                return FLESH:import(]]..trans..[[(self.state))
-            end]])
-        end
-        local make_host_res_init = function (host_type)
-            return FLESH.make.Artifact([[return function (self, arg)
-                -- wrap host resource manifest
-                if (FLESH.capcheck(self,arg)) then return arg end -- literal uses same protocol, so we just passing
-                if (type(arg) == "]]..host_type..[[") then return {protocol = self.state,state = arg}} end
-                return -- Error manifest
-            end]])
-        end
-
         FLESH.make.Frame = function (t)
             -- WARNING: the nested table is interface, but the content of it must be Manifests
             local s = {labels = {lb={},bl={}}, bindings = {}}
@@ -404,26 +380,54 @@ return (function ()
                 FLESH.make.Error("invalid type (rework this error)")
         end
 
-        local host_protocols = FLESH.make.Frame({ -- while it's a mapping table, OPHANIM fundamentally disagree with lua on type existance, so for example userdata can't be capchecked
-            ["nil"] = FLESH.KES:write_entry(nil, {protocol = {},state = {}}),
-            boolean = FLESH.KES:write_entry(nil, {protocol = {
+        -- no implicit conversions, this is only between this specific implementation
+        local make_trans_op = function (op)
+            return FLESH.make.Artifact([[return function (self, arg)
+                if (FLESH.capcheck({state = self.protocol},arg)) then -- 2nd value might have different protocol, I think I'll need to rework this into lua general value protocol check or something.
+                    return FLESH:import(self.state ]]..op..[[ arg.state)
+                else
+                    return -- Error manifest
+                end
+            end]])
+        end
+        local make_trans = function (trans)
+            return FLESH.make.Artifact([[return function (self)
+                return FLESH:import(]]..trans..[[(self.state))
+            end]])
+        end
+        local make_host_res_init = function (host_type)
+            return FLESH.make.Artifact([[return function (self, arg)
+                -- wrap host resource manifest
+                if (FLESH.capcheck(self,arg)) then return arg end -- literal uses same protocol, so we just passing
+                if (type(arg) == "]]..host_type..[[") then return {protocol = self.state,state = arg}} end
+                return -- Error manifest
+            end]])
+        end
+
+        FLESH.Host = {}
+        FLESH.Host.Types = { -- while it's a mapping table, OPHANIM fundamentally disagree with lua on type existance, so for example userdata can't be capchecked
+            ["nil"] = FLESH.make.Manifest({},{}),
+            boolean = FLESH.make.Manifest({
                     can = {
                         ["in"] = {call = capability_check},
-                        ["="] = make_host_res_init("boolean")}},
-                state = {
+                        ["="] = make_host_res_init("boolean")
+                },{
                     can = {
                         ["|"] = {call = make_trans_op("or")},
                         ["&"] = {call = make_trans_op("and")},
                         ["~"] = {get = make_trans("not")},
                         ["=="] = {call = make_trans_op("==")},
                         ["~="] = {call = make_trans_op("~=")},
-                    }
+                        to = {
+                            can = {
+                                NegIManifest = {get = FLESH.make.Artifact("return function (self) return FLESH.make.Number(self.state) end")},
+                    }}}
                 }}),
-            number = FLESH.KES:write_entry(nil, {protocol = {
+            number = FLESH.make.Manifest({
                     can = {
                         ["in"] = {call = capability_check},
-                        ["="] = make_host_res_init("number")}},
-                state = {
+                        ["="] = make_host_res_init("number")
+                },{
                     can = {
                         ["+"] = {call = make_trans_op("+")},
                         ["-"] = {call = make_trans_op("-")},
@@ -472,18 +476,19 @@ return (function ()
                         ult = {call = nil}, -- math.ult (m, n)
                         to = {
                             can = {
+                                NegIManifest = {get = FLESH.make.Artifact("return function (self) return FLESH.make.Number(self.state) end")},
                                 string = {get = FLESH.make.Artifact([[return function (self)
                                     return { -- UNFINISHED
                                         protocol = FLESH.KES:resolve(host_types.state.items[host_types.state.labels.string]).state,
                                         state = tostring(self.state)}
-                                end]])}}}
-                    }
+                                end]])
+                    }}}}
                 }}),
-            string = FLESH.KES:write_entry(nil, {protocol = {
+            string = FLESH.make.Manifest({
                     can = {
                         ["in"] = {call = capability_check},
-                        ["="] = make_host_res_init("string")}},
-                state = {
+                        ["="] = make_host_res_init("string")
+                },{
                     can = {
                         ["+"] = {call = make_trans_op("..")},
                         ["=="] = {call = make_trans_op("==")},
@@ -497,6 +502,7 @@ return (function ()
                         reverse = {get = make_trans("string.reverse")},
                         to = {
                             can = {
+                                NegIManifest = {get = FLESH.make.Artifact("return function (self) return FLESH.make.String(self.state) end")},
                                 number = {get = FLESH.make.Artifact([[return function (self)
                                     return {
                                         protocol = FLESH.KES:resolve(host_types.state.items[host_types.state.labels.number]).state,
@@ -505,24 +511,24 @@ return (function ()
                     }
                 }}),
             userdata = nil, -- the lua lables it userdata, but basically it's a capability wildcard that OPHANIM can't use to check against userdata instance 
-            ["function"] = FLESH.KES:write_entry(nil, {protocol = {
+            ["function"] = FLESH.make.Manifest({
                     can = {
                     ["in"] = {call = capability_check},
-                    ["="] = make_host_res_init("function")}},
-                state = {
+                    ["="] = make_host_res_init("function")
+                },{
                     can = {
-                        dump = {get = FLESH.make.Artifact([[]])}
+                        dump = {get = make_trans("string.dump")}
                     },
                     call = FLESH.make.Artifact([[return function (self, arg)
                         local frame_p
                         return FLESH:import(self.state(table.unpack(args)))
                     end]])
                 }}),
-            thread = FLESH.KES:write_entry(nil, {protocol = { -- 
+            thread = FLESH.make.Manifest({ -- 
                     can = {
                         ["in"] = {call = capability_check},
-                        ["="] = make_host_res_init("thread")}},
-                state = {
+                        ["="] = make_host_res_init("thread")
+                },{
                     can = {
                         close = {get = FLESH.make.Artifact([[]])},
                         isyieldable = {get = FLESH.make.Artifact([[]])},
@@ -531,7 +537,7 @@ return (function ()
                         wrap = {get = FLESH.make.Artifact([[]])},
                     }
                 }}),
-            table = FLESH.KES:write_entry(nil, {protocol = { -- this also somewhat capability wildcard, but the importer uses different protocol for table, if it's table isn't empty
+            table = FLESH.make.Manifest({ -- this also somewhat capability wildcard, but the importer uses different protocol for table, if it's table isn't empty
                     can = {
                         ["in"] = {call = capability_check},
                         ["="] = FLESH.make.Artifact([[return function (self, arg)
@@ -539,35 +545,38 @@ return (function ()
                             if (FLESH.capcheck(self,arg)) then return arg end -- literal uses same protocol, so we just passing
                             if (type(arg) == "table") then return {protocol = self.state,state = arg}} end
                             return -- Error manifest
-                        end]])}},
-                state = {
+                        end]])
+                },{
                     can = {
                         ["+"] = {call = make_trans_op("..")},
                         ["=="] = {call = make_trans_op("==")},
                         ["~="] = {call = make_trans_op("~=")},
                         size = {call = make_trans("#")},
-                        
+                        to = {
+                            can = {
+                                NegIManifest = {get = FLESH.make.Artifact("return function (self) return FLESH.make.Number(self.state) end")},
+                        }}
                     },
                     call = FLESH.make.Artifact([[return function (self, arg)
                         -- TODO: we somehow need to check if arg is a number or a manifest
                         return FLESH:import(self[arg.state]) -- we need to chanage the intent of import, so it would use this data
                     end]])
                 }}),
-            unknown = FLESH.KES:write_entry(nil, {protocol = {
+            unknown = FLESH.make.Manifest({
                     can = {
                         ["in"] = {call = capability_check},
                         ["="] = FLESH.make.Artifact([[return function (self, arg) -- UNFINISHED
                             return {protocol = self.state,state = arg}
-                        end]])}},
-                state = {}}),
-        })
+                        end]])
+                },{}}),
+        }
 
         
 
         FLESH.import = (function () 
             local value_mapping = function (self, o)
                 return {
-                    protocol = host.protocols[type(o)].state, -- TODO: I need to rework the structure
+                    protocol = FLESH.Host.Types[type(o)].state, -- TODO: I need to rework the structure
                     state = o} end
 
             local gen_mt_protocol = function (self, mt)
@@ -616,13 +625,13 @@ return (function ()
                 end
             end end)()
 
-        local host_frame = FLESH.make.Frame({
+        FLESH.Host.Frame = {
             meta = FLESH.make.Frame({
                 name = FLESH:import("Lua 5.5"),
                 version = FLESH:import("0.0.1")
             }),
             intrinsics = FLESH.make.Frame({
-                types = nil,
+                types = FLESH.make.Frame(FLESH.Host.Types),
                 concepts = nil,
             }),
             authority = FLESH.make.Frame({
@@ -632,7 +641,7 @@ return (function ()
                 os = nil,
                 package = nil,
             }),  
-        })
+        }
 
         --[[ -- since OPHANIM structured differently, lua interafec should be altered to fit the philosophy
         basic -- ???
@@ -667,8 +676,8 @@ return (function ()
         FLESH.NegI.Manifests = { -- this is the core shared interface (or "corelib" if you'd like to call it like that), the abstract foundation for any logic that will come next. TODO: I need to move NegI protocols inside of it
             Native = FLESH.make.Manifest({ -- should represent state during introspection, to make it hostile
                 ["in"] = {call = capability_check}},{
-                can = {
-                    import = {get = nil}} -- lua allows that, but compiled/static languages have a possibility of not working out like that
+                can = { -- lua allows importing, but compiled/static languages have a possibility of not working out like that
+                    import = {get = FLESH.make.Artifact("return function (self) return FLESH:import(self.state) end")}}
             }),
             Artifact = FLESH.NegI.Manifests.Artifact, -- Host authority descriptor, seek definition before this
             Error = FLESH.make.Manifest({ -- Error is always as valua
@@ -870,56 +879,330 @@ return (function ()
                     end]])
             }),
         }
-    
+        
         FLESH.KES:write_entry("NegI", FLESH.make.Frame(FLESH.NegI.Manifests))
 
-        --FLESH.KES:write_entry("Number", FLESH.KES:resolve(host_types.state.items[host_types.state.labels.number])) -- the logic behind it and lua number is different (because boolean is a Number with limited ammount of states), I should change that.
-        --FLESH.KES:write_entry("String", FLESH.KES:resolve(host_types.state.items[host_types.state.labels.string]))
+        FLESH.NegI.parse = (function ()
+            local table_invert = function (t)
+                local s={}
+                for k,v in pairs(t) do
+                    s[v]=k
+                end
+                return s
+            end
 
-        local AST = { -- refactoring the Sequence generator for parser
-            GAP = function () 
-                return nil -- we don't have anything on here
-            end,
-            NUMBER = function (value)
-                return {
-                    protocol = FLESH.NegI.Manifests.Number.state,
-                    state = value} end,
-            STRING = function (value)
-                return {
-                    protocol = FLESH.NegI.Manifests.String.state,
-                    state = value} end,
-            LABEL = function (name)
-                return {
-                    protocol = FLESH.NegI.Manifests.Label.state,
-                    state = {name = name}} end,
-            FRAME = function (items) -- TODO: this one isn't a frame, but a frame constructor, that creates environment for writing, like Sequence
-                return { -- constructor
-                    protocol = {get = FLESH.make.Artifact([[return function (self)
-                        -- it's easier to do the lua way on lua side, though later I'll need to repalce it with Manifest that don't create another artifact like this
-                        -- TODO: rework under `labels` and `bindings`
-                        local items = self.state.items
-                        local labels = table.create and {lb=table.create(0,#items),bl=table.create(0,#items)} or {lb={},bl={}}
-                        --FLESH.KES:push_layer(FLESH.KES:get_context(), true)
-                        for i,m in ipairs(items) do FLESH.KES:stage_fill_reserve(dispatch(m, nil)) end
-                        FLESH.KES:commit(true) -- this could be used mid Sequence, this emergently allow to shuffle labels around
-                        return {
-                            protocol = FLESH.NegI.Manifests.Frame.state,
-                            state = FLESH.KES:inner_snapshot()} -- this might be slower, compared to just poping a Frame from layer, but as long as it works without hacks, I'm satisfied
-                    end]])},--ref to manifest for running an evaluation (that would be Sequence or Artifact).
-                    state = {items = items}} end,
-            SEQUENCE = function (prods, creturn) -- Sequence holds quoted stuff, so we are not doing any actual construction
-                return {
-                    protocol = FLESH.NegI.Manifests.Sequence.state,
-                    state = {prods = prods, creturn = creturn}} end,
-            MEMBRANE = function (kind, content) 
-                return { -- TODO: rework is pending
-                    protocol = FLESH.NegI.Manifests[({"Contain", "Quote", "Make"})[kind+1]].state,
-                    state = content} end,
-            NEGOTIATION = function (lterm, rterm) -- evaluation units
-                return {
-                    protocol = FLESH.NegI.Manifests.Negotiation.state,
-                    state = {lterm = lterm, rterm = rterm}} end
-        }
+            -- Parser assets and constants
+            local TOKENTYPE = { -- enumeration for tokenizer
+                NUMBER = 0,
+                STRING = 1,
+                LABEL = 2,
+                MEMBRANE_OPEN = 3,
+                MEMBRANE_CLOSE = 4,
+                FINISH_ELEMENT = 5,
+                FINISH_ACTION = 6
+            }
+
+            local tokenname = table_invert(TOKENTYPE)
+
+            local AST_METADATA = function (node, pos)
+                return FLESH.make.Manifest(FLESH.NegI.Token.state,{})
+            end
+
+            -- Internal AST node creators (for parser output)
+            local AST = { -- refactoring the Sequence generator for parser
+                GAP = function () 
+                    return nil -- we don't have anything on here
+                end,
+                NUMBER = function (value)
+                    return {
+                        protocol = FLESH.NegI.Manifests.Number.state,
+                        state = value} end,
+                STRING = function (value)
+                    return {
+                        protocol = FLESH.NegI.Manifests.String.state,
+                        state = value} end,
+                LABEL = function (name)
+                    return {
+                        protocol = FLESH.NegI.Manifests.Label.state,
+                        state = {name = name}} end,
+                FRAME = function (items) -- TODO: this one isn't a frame, but a frame constructor, that creates environment for writing, like Sequence
+                    return { -- constructor
+                        protocol = {get = FLESH.make.Artifact([[return function (self)
+                            -- it's easier to do the lua way on lua side, though later I'll need to repalce it with Manifest that don't create another artifact like this
+                            -- TODO: rework under `labels` and `bindings`
+                            local items = self.state.items
+                            local labels = table.create and {lb=table.create(0,#items),bl=table.create(0,#items)} or {lb={},bl={}}
+                            --FLESH.KES:push_layer(FLESH.KES:get_context(), true)
+                            for i,m in ipairs(items) do FLESH.KES:stage_fill_reserve(dispatch(m, nil)) end
+                            FLESH.KES:commit(true) -- this could be used mid Sequence, this emergently allow to shuffle labels around
+                            return {
+                                protocol = FLESH.NegI.Manifests.Frame.state,
+                                state = FLESH.KES:inner_snapshot()} -- this might be slower, compared to just poping a Frame from layer, but as long as it works without hacks, I'm satisfied
+                        end]])},--ref to manifest for running an evaluation (that would be Sequence or Artifact).
+                        state = {items = items}} end,
+                SEQUENCE = function (prods, creturn) -- Sequence holds quoted stuff, so we are not doing any actual construction
+                    return {
+                        protocol = FLESH.NegI.Manifests.Sequence.state,
+                        state = {prods = prods, creturn = creturn}} end,
+                MEMBRANE = function (kind, content) 
+                    return { -- TODO: rework is pending
+                        protocol = FLESH.NegI.Manifests[({"Contain", "Quote", "Make"})[kind+1]].state,
+                        state = content} end,
+                NEGOTIATION = function (lterm, rterm) -- evaluation units
+                    return {
+                        protocol = FLESH.NegI.Manifests.Negotiation.state,
+                        state = {lterm = lterm, rterm = rterm}} end
+            }
+
+            -- Internal: Recursive descent parsers (one per non-terminal)
+            local parse_term, parse_negotiation, parse_product, parse_sequence
+
+            parse_term = function(tokens, pos)
+                local tok
+                if pos <= #tokens then
+                    tok = tokens[pos]
+                    if tok.type == TOKENTYPE.MEMBRANE_OPEN then -- handle membrane: contain | quote | make
+                        local kind = tok.value
+                        local seq, new_pos = parse_sequence(tokens, pos + 1)
+                        pos = new_pos
+                        local concl = tokens[pos]
+                        if (concl == nil) then -- TODO: make this mess unified, there are a lot of repetition
+                            error(
+                                "parse_term ERROR: Expected membrane_close '"..
+                                string.sub(")}]",tok.value+1,tok.value+1)..
+                                "', but got nothing. Membrane begins "..
+                                " at line:"..tostring(tok.at.line)..
+                                ", char:"..tostring(tok.at.char), 2)
+                        elseif (concl.type ~= TOKENTYPE.MEMBRANE_CLOSE) then
+                            error(
+                                "parse_term ERROR: Expected membrane_close for some reason (probably parser bug, because it's implicitly checked), but got '"..
+                                tokenname[concl.type]..
+                                "' at line:"..tostring(concl.at.line)..
+                                ", char:"..tostring(concl.at.char), 2)
+                        elseif (concl.value ~= kind) then
+                            error(
+                                "parse_term ERROR: Bracket missmatch. Forgot to open with '"..
+                                string.sub("({[",tok.value+1,tok.value+1)..
+                                "' membrane? Expected this membrane to close with '"..
+                                string.sub(")}]",tok.value+1,tok.value+1)..
+                                "' at line:"..tostring(concl.at.line)..
+                                ", char:"..tostring(concl.at.char), 2)
+                        end
+                        return AST.MEMBRANE(kind, seq), pos + 1
+                    elseif tok.type == TOKENTYPE.NUMBER then -- handle NUMBER
+                        return AST.NUMBER(tok.value), pos + 1
+                    elseif tok.type == TOKENTYPE.STRING then -- handle ESCAPED_STRING
+                        return AST.STRING(tok.value), pos + 1
+                    elseif tok.type == TOKENTYPE.LABEL then -- handle label
+                        return AST.LABEL(tok.value), pos + 1
+                    elseif -- handle gap
+                        -- the code below generates ast_gap, to help tracking gaps inside sequences or frames
+                        -- we can throw gap only if expeted term terminated by one of those 2 tokens
+                        tok.type == TOKENTYPE.FINISH_ELEMENT or 
+                        tok.type == TOKENTYPE.FINISH_ACTION then
+                        return AST.GAP(), pos
+                    end
+                end
+                -- this could happen in cases like `blabla;` where after `;` there's eof or membrane_close
+                -- this means that there's nothing we can use to create term, but higher parse expects something
+                return nil, pos -- so while we're at it, we just tell higher up that no valid term found
+            end
+
+            parse_negotiation = function(tokens, pos) -- handle negotiation: term term //left associative 
+                local term, new_pos = parse_term(tokens, pos)
+                pos = new_pos
+                if (term == nil) then return nil, pos end
+
+                local tok = tokens[pos] -- slight optimization
+                local node = term
+                while 
+                    tok and (
+                    tok.type == TOKENTYPE.MEMBRANE_OPEN or 
+                    tok.type == TOKENTYPE.NUMBER or 
+                    tok.type == TOKENTYPE.STRING or 
+                    tok.type == TOKENTYPE.LABEL) do -- Check if next token is a term (not a delimiter)
+                    term, pos = parse_term(tokens, pos) -- previous check guarantees that parse_term won't return (nil, pos)
+                    tok = tokens[pos] -- we update tok
+                    node = AST.NEGOTIATION(node, term) -- Keep nesting leftwards
+                end
+                return node, pos
+            end
+
+            local check_token = function (tok, tt)
+                return (tok ~= nil) and tok.type == tt
+            end
+
+            parse_product = function(tokens, pos) -- handle ?product: frame | term
+                local term, new_pos = parse_negotiation(tokens, pos)
+                pos = new_pos
+                if check_token(tokens[pos], TOKENTYPE.FINISH_ELEMENT) then -- it's a frame
+                    -- there must be comma, but trailing one is optional. 
+                    -- meaning (5,) must be valid frame with 1 element,
+                    -- while (5) is just the element
+                    local items = {term}
+                    repeat
+                        pos = pos + 1
+                        term, pos = parse_negotiation(tokens, pos)
+                        if term then -- for the sake of trailing comma, there might be nil
+                            table.insert(items, term)
+                        end
+                    until not check_token(tokens[pos], TOKENTYPE.FINISH_ELEMENT)
+                    return AST.FRAME(items), pos
+                else -- it's not a frame
+                    return term, pos -- could return (nil, pos) from parse_term and thats fine
+                end
+            end
+
+            parse_sequence = function(tokens, pos) -- handle ?sequence: (product ";")* [creturn]
+                local term, new_pos = parse_product(tokens, pos)
+                pos = new_pos
+                -- we could have no sequence at all, so first thing we check if there is sequence
+                if check_token(tokens[pos], TOKENTYPE.FINISH_ACTION) then -- it's a sequence
+                    -- there must be semicolon, but trailing one sets creturn to nil. 
+                    -- meaning (5;) must be valid sequence with 1 element,
+                    -- while (5) is just the element,
+                    -- but if it's (5;5), last element conidered as return value on membrane finish
+                    local prod = {}
+                    local ret = term
+                    repeat
+                        table.insert(prod, ret)
+                        ret = nil
+                        pos = pos + 1
+                        term, pos = parse_product(tokens, pos)
+                        if term then -- sometimes there might be not vaild term after semicolon
+                            ret = term
+                        end
+                    until not check_token(tokens[pos], TOKENTYPE.FINISH_ACTION)
+                    return AST.SEQUENCE(prod, ret), pos
+                else -- it's not a sequence
+                    return term, pos -- could return (nil, pos) from parse_term and thats fine
+                end
+            end
+
+            local tokenize = function(code)
+                local tokens = {}
+                local i = 1
+                local line = 1
+                local choff = 0
+                while i <= #code do
+                    local c = code:sub(i, i)
+                    if c:match("%s") then  -- Skip whitespace
+                        if c == "\n" then 
+                            line = line + 1
+                            choff = i
+                        end
+                        i = i + 1
+                    --elseif c == "0" and code:sub(i+1,i+1):lower() == "x" then -- Number Hex (syntax sugar. Removed in favour of Ada/Smalltalk style "can" keys)
+                    --    local hex = code:match("^0x%x+", i)
+                    --    table.insert(tokens, {type = TOKENTYPE.NUMBER, value = tonumber(hex), at = {char = i - choff, line = line}})
+                    --    i = i + #hex
+                    --elseif c == "0" and code:sub(i+1,i+1):lower() == "b" then -- Number Binary
+                    --    local bin = code:match("^0b[01]+", i)
+                    --    local val = tonumber(bin:sub(3), 2)
+                    --    table.insert(tokens, {type = TOKENTYPE.NUMBER, value = val, at = {char = i - choff, line = line}})
+                    --    i = i + #bin
+                    elseif c:match("%d") then -- Number Scientific/Basic
+                        local num = code:match("^%d+%.?%d*[eE][+-]?%d+", i) or 
+                                    code:match("^%d+%.?%d*", i)
+                        table.insert(tokens, {type = TOKENTYPE.NUMBER, value = tonumber(num), at = {char = i - choff, line = line}})
+                        i = i + #num
+                    elseif c == '"' then  -- String
+                        local value = {}
+                        local i_start = i
+                        i = i + 1  -- skip opening quote
+
+                        while i <= #code do
+                            local ch = code:sub(i, i)
+
+                            if ch == '\\' then
+                                -- Escape sequence
+                                i = i + 1
+                                if i > #code then
+                                  error("Unfinished escape sequence at end of string", 2)
+                                end
+                                local next = code:sub(i, i)
+
+                                if next == 'n' then
+                                    table.insert(value, '\n')  -- Newline
+                                elseif next == 't' then
+                                    table.insert(value, '\t')  -- Tab
+                                elseif next == 'r' then
+                                    table.insert(value, '\r')  -- Carriage return
+                                elseif next == '"' then
+                                    table.insert(value, '"')   -- Escaped quote
+                                elseif next == '\\' then
+                                    table.insert(value, '\\')  -- Escaped backslash
+                                else
+                                    -- Unknown escape: treat literally (or error)
+                                    table.insert(value, '\\')
+                                    table.insert(value, next)
+                                end
+                                i = i + 1
+                            
+                            elseif ch == '\n' then
+                                -- Direct Newlines are whitespace even here
+                                line = line + 1
+                                choff = i  -- Reset char offset after newline
+                                i = i + 1
+                            elseif ch == '"' then
+                                -- Closing quote
+                                i = i + 1
+                                break
+                            else
+                                -- Regular character
+                                table.insert(value, ch)
+                                i = i + 1
+                            end
+                        end
+
+                        table.insert(tokens, {
+                            type = TOKENTYPE.STRING, 
+                            value = table.concat(value), 
+                            at = {char = i_start - choff, line = line}
+                        })
+                    elseif c:match("[a-zA-Z_]") then  -- CNAME label
+                        local label = code:match("^[_a-zA-Z][_a-zA-Z0-9]*", i)
+                        table.insert(tokens, {type = TOKENTYPE.LABEL, value = label, at = {char = i - choff, line = line}})
+                        i = i + #label
+                    elseif c:match("^[+%-*/%%=<>!&|^~:@#%.`$]+$") then  -- SNAME label symbol
+                        local sym = code:match("^[+%-*/%%=<>!&|^~:@#%.`$]+", i)
+                        table.insert(tokens, {type = TOKENTYPE.LABEL, value = sym, at = {char = i - choff, line = line}})
+                        i = i + #sym
+                    elseif c == "(" or c == "{" or c == "[" then  -- Open brackets
+                        table.insert(tokens, {
+                            type = TOKENTYPE.MEMBRANE_OPEN,
+                            value = ({["("]=0,["{"]=1,["["]=2})[c], 
+                            at = {char = i - choff, line = line}})
+                        i = i + 1
+                    elseif c == ")" or c == "}" or c == "]" then  -- Close brackets
+                        table.insert(tokens, {
+                            type = TOKENTYPE.MEMBRANE_CLOSE, 
+                            value = ({[")"]=0,["}"]=1,["]"]=2})[c], 
+                            at = {char = i - choff, line = line}})
+                        i = i + 1
+                    elseif c == "," then
+                        table.insert(tokens, {type = TOKENTYPE.FINISH_ELEMENT, at = {char = i - choff, line = line}})
+                        i = i + 1
+                    elseif c == ";" then
+                        table.insert(tokens, {type = TOKENTYPE.FINISH_ACTION, at = {char = i - choff, line = line}})
+                        i = i + 1
+                    else
+                        error("Unexpected character: '" .. c .. "' at line:"..tostring(line)..", char:"..tostring(i - choff), 2)
+                    end
+                end
+                return tokens
+            end
+            return function (src)
+                local tokens = tokenize(src)
+                local ast, pos = parse_sequence(tokens, 1)
+                if pos <= #tokens then
+                    error("Parse error: extra tokens after sequence", 2)
+                end
+                return ast
+            end 
+        end)() -- returns src's AST prepared for loading into NegI state via FLESH.load (and yes, it's a function constructor)
+
+        
 
         local manifest = { -- manifest structure reference ()
             template = {
@@ -940,290 +1223,6 @@ return (function ()
     return {
     _VERSION="0.0.1",
     newstate = newstate,
-    parse = (function ()
-        local table_invert = function (t)
-            local s={}
-            for k,v in pairs(t) do
-                s[v]=k
-            end
-            return s
-        end
-
-        -- Parser assets and constants
-        local TOKENTYPE = { -- enumeration for tokenizer
-            NUMBER = 0,
-            STRING = 1,
-            LABEL = 2,
-            MEMBRANE_OPEN = 3,
-            MEMBRANE_CLOSE = 4,
-            FINISH_ELEMENT = 5,
-            FINISH_ACTION = 6
-        }
-
-        local tokenname = table_invert(TOKENTYPE)
-
-        -- Internal AST node creators (for parser output)
-        --as state API matures, I should replace types with actual manifest creation commands from API.
-        --so I have plans to make ast nodes obsolete
-        --but this table will remain as interface that parser uses, I will just replace what those functions will do
-        local AST = { -- what parser uses to make "AST"
-            GAP = function () return {type = 0} end, -- part of language. helps in tracking gaps in frames and sequences
-            NUMBER = function (value) return {type = 1, value = value} end,
-            STRING = function (value) return {type = 2, value = value} end,
-            LABEL = function (name) return {type = 3, name = name} end,
-            FRAME = function (items) return {type = 4, items = items} end,
-            SEQUENCE = function (prods, creturn) return {type = 5, prods = prods, creturn = creturn} end,
-            MEMBRANE = function (kind, content) return {type = 6, kind = kind, content = content} end,
-            NEGOTIATION = function (lterm,rterm) return {type = 7, lterm = lterm, rterm = rterm} end
-        }
-        
-        -- Internal: Recursive descent parsers (one per non-terminal)
-        local parse_term, parse_negotiation, parse_product, parse_sequence
-
-        parse_term = function(tokens, pos)
-            local tok
-            if pos <= #tokens then
-                tok = tokens[pos]
-                if tok.type == TOKENTYPE.MEMBRANE_OPEN then -- handle membrane: contain | quote | make
-                    local kind = tok.value
-                    local seq, new_pos = parse_sequence(tokens, pos + 1)
-                    pos = new_pos
-                    local concl = tokens[pos]
-                    if (concl == nil) then -- TODO: make this mess unified, there are a lot of repetition
-                        error(
-                            "parse_term ERROR: Expected membrane_close '"..
-                            string.sub(")}]",tok.value+1,tok.value+1)..
-                            "', but got nothing. Membrane begins "..
-                            " at line:"..tostring(tok.at.line)..
-                            ", char:"..tostring(tok.at.char), 2)
-                    elseif (concl.type ~= TOKENTYPE.MEMBRANE_CLOSE) then
-                        error(
-                            "parse_term ERROR: Expected membrane_close for some reason (probably parser bug, because it's implicitly checked), but got '"..
-                            tokenname[concl.type]..
-                            "' at line:"..tostring(concl.at.line)..
-                            ", char:"..tostring(concl.at.char), 2)
-                    elseif (concl.value ~= kind) then
-                        error(
-                            "parse_term ERROR: Bracket missmatch. Forgot to open with '"..
-                            string.sub("({[",tok.value+1,tok.value+1)..
-                            "' membrane? Expected this membrane to close with '"..
-                            string.sub(")}]",tok.value+1,tok.value+1)..
-                            "' at line:"..tostring(concl.at.line)..
-                            ", char:"..tostring(concl.at.char), 2)
-                    end
-                    return AST.MEMBRANE(kind, seq), pos + 1
-                elseif tok.type == TOKENTYPE.NUMBER then -- handle NUMBER
-                    return AST.NUMBER(tok.value), pos + 1
-                elseif tok.type == TOKENTYPE.STRING then -- handle ESCAPED_STRING
-                    return AST.STRING(tok.value), pos + 1
-                elseif tok.type == TOKENTYPE.LABEL then -- handle label
-                    return AST.LABEL(tok.value), pos + 1
-                elseif -- handle gap
-                    -- the code below generates ast_gap, to help tracking gaps inside sequences or frames
-                    -- we can throw gap only if expeted term terminated by one of those 2 tokens
-                    tok.type == TOKENTYPE.FINISH_ELEMENT or 
-                    tok.type == TOKENTYPE.FINISH_ACTION then
-                    return AST.GAP(), pos
-                end
-            end
-            -- this could happen in cases like `blabla;` where after `;` there's eof or membrane_close
-            -- this means that there's nothing we can use to create term, but higher parse expects something
-            return nil, pos -- so while we're at it, we just tell higher up that no valid term found
-        end
-                
-        parse_negotiation = function(tokens, pos) -- handle negotiation: term term //left associative 
-            local term, new_pos = parse_term(tokens, pos)
-            pos = new_pos
-            if (term == nil) then return nil, pos end
-
-            local tok = tokens[pos] -- slight optimization
-            local node = term
-            while 
-                tok and (
-                tok.type == TOKENTYPE.MEMBRANE_OPEN or 
-                tok.type == TOKENTYPE.NUMBER or 
-                tok.type == TOKENTYPE.STRING or 
-                tok.type == TOKENTYPE.LABEL) do -- Check if next token is a term (not a delimiter)
-                term, pos = parse_term(tokens, pos) -- previous check guarantees that parse_term won't return (nil, pos)
-                tok = tokens[pos] -- we update tok
-                node = AST.NEGOTIATION(node, term) -- Keep nesting leftwards
-            end
-            return node, pos
-        end
-        
-        local check_token = function (tok, tt)
-            return (tok ~= nil) and tok.type == tt
-        end
-
-        parse_product = function(tokens, pos) -- handle ?product: frame | term
-            local term, new_pos = parse_negotiation(tokens, pos)
-            pos = new_pos
-            if check_token(tokens[pos], TOKENTYPE.FINISH_ELEMENT) then -- it's a frame
-                -- there must be comma, but trailing one is optional. 
-                -- meaning (5,) must be valid frame with 1 element,
-                -- while (5) is just the element
-                local items = {term}
-                repeat
-                    pos = pos + 1
-                    term, pos = parse_negotiation(tokens, pos)
-                    if term then -- for the sake of trailing comma, there might be nil
-                        table.insert(items, term)
-                    end
-                until not check_token(tokens[pos], TOKENTYPE.FINISH_ELEMENT)
-                return AST.FRAME(items), pos
-            else -- it's not a frame
-                return term, pos -- could return (nil, pos) from parse_term and thats fine
-            end
-        end
-        
-        parse_sequence = function(tokens, pos) -- handle ?sequence: (product ";")* [creturn]
-            local term, new_pos = parse_product(tokens, pos)
-            pos = new_pos
-            -- we could have no sequence at all, so first thing we check if there is sequence
-            if check_token(tokens[pos], TOKENTYPE.FINISH_ACTION) then -- it's a sequence
-                -- there must be semicolon, but trailing one sets creturn to nil. 
-                -- meaning (5;) must be valid sequence with 1 element,
-                -- while (5) is just the element,
-                -- but if it's (5;5), last element conidered as return value on membrane finish
-                local prod = {}
-                local ret = term
-                repeat
-                    table.insert(prod, ret)
-                    ret = nil
-                    pos = pos + 1
-                    term, pos = parse_product(tokens, pos)
-                    if term then -- sometimes there might be not vaild term after semicolon
-                        ret = term
-                    end
-                until not check_token(tokens[pos], TOKENTYPE.FINISH_ACTION)
-                return AST.SEQUENCE(prod, ret), pos
-            else -- it's not a sequence
-                return term, pos -- could return (nil, pos) from parse_term and thats fine
-            end
-        end
-
-        local tokenize = function(code)
-            local tokens = {}
-            local i = 1
-            local line = 1
-            local choff = 0
-            while i <= #code do
-                local c = code:sub(i, i)
-                if c:match("%s") then  -- Skip whitespace
-                    if c == "\n" then 
-                        line = line + 1
-                        choff = i
-                    end
-                    i = i + 1
-                --elseif c == "0" and code:sub(i+1,i+1):lower() == "x" then -- Number Hex (syntax sugar. Removed in favour of Ada/Smalltalk style "can" keys)
-                --    local hex = code:match("^0x%x+", i)
-                --    table.insert(tokens, {type = TOKENTYPE.NUMBER, value = tonumber(hex), at = {char = i - choff, line = line}})
-                --    i = i + #hex
-                --elseif c == "0" and code:sub(i+1,i+1):lower() == "b" then -- Number Binary
-                --    local bin = code:match("^0b[01]+", i)
-                --    local val = tonumber(bin:sub(3), 2)
-                --    table.insert(tokens, {type = TOKENTYPE.NUMBER, value = val, at = {char = i - choff, line = line}})
-                --    i = i + #bin
-                elseif c:match("%d") then -- Number Scientific/Basic
-                    local num = code:match("^%d+%.?%d*[eE][+-]?%d+", i) or 
-                                code:match("^%d+%.?%d*", i)
-                    table.insert(tokens, {type = TOKENTYPE.NUMBER, value = tonumber(num), at = {char = i - choff, line = line}})
-                    i = i + #num
-                elseif c == '"' then  -- String
-                    local value = {}
-                    local i_start = i
-                    i = i + 1  -- skip opening quote
-                    
-                    while i <= #code do
-                        local ch = code:sub(i, i)
-                        
-                        if ch == '\\' then
-                            -- Escape sequence
-                            i = i + 1
-                            if i > #code then
-                              error("Unfinished escape sequence at end of string", 2)
-                            end
-                            local next = code:sub(i, i)
-
-                            if next == 'n' then
-                                table.insert(value, '\n')  -- Newline
-                            elseif next == 't' then
-                                table.insert(value, '\t')  -- Tab
-                            elseif next == 'r' then
-                                table.insert(value, '\r')  -- Carriage return
-                            elseif next == '"' then
-                                table.insert(value, '"')   -- Escaped quote
-                            elseif next == '\\' then
-                                table.insert(value, '\\')  -- Escaped backslash
-                            else
-                                -- Unknown escape: treat literally (or error)
-                                table.insert(value, '\\')
-                                table.insert(value, next)
-                            end
-                            i = i + 1
-                        
-                        elseif ch == '\n' then
-                            -- Direct Newlines are whitespace even here
-                            line = line + 1
-                            choff = i  -- Reset char offset after newline
-                            i = i + 1
-                        elseif ch == '"' then
-                            -- Closing quote
-                            i = i + 1
-                            break
-                        else
-                            -- Regular character
-                            table.insert(value, ch)
-                            i = i + 1
-                        end
-                    end
-
-                    table.insert(tokens, {
-                        type = TOKENTYPE.STRING, 
-                        value = table.concat(value), 
-                        at = {char = i_start - choff, line = line}
-                    })
-                elseif c:match("[a-zA-Z_]") then  -- CNAME label
-                    local label = code:match("^[_a-zA-Z][_a-zA-Z0-9]*", i)
-                    table.insert(tokens, {type = TOKENTYPE.LABEL, value = label, at = {char = i - choff, line = line}})
-                    i = i + #label
-                elseif c:match("^[+%-*/%%=<>!&|^~:@#%.`$]+$") then  -- SNAME label symbol
-                    local sym = code:match("^[+%-*/%%=<>!&|^~:@#%.`$]+", i)
-                    table.insert(tokens, {type = TOKENTYPE.LABEL, value = sym, at = {char = i - choff, line = line}})
-                    i = i + #sym
-                elseif c == "(" or c == "{" or c == "[" then  -- Open brackets
-                    table.insert(tokens, {
-                        type = TOKENTYPE.MEMBRANE_OPEN,
-                        value = ({["("]=0,["{"]=1,["["]=2})[c], 
-                        at = {char = i - choff, line = line}})
-                    i = i + 1
-                elseif c == ")" or c == "}" or c == "]" then  -- Close brackets
-                    table.insert(tokens, {
-                        type = TOKENTYPE.MEMBRANE_CLOSE, 
-                        value = ({[")"]=0,["}"]=1,["]"]=2})[c], 
-                        at = {char = i - choff, line = line}})
-                    i = i + 1
-                elseif c == "," then
-                    table.insert(tokens, {type = TOKENTYPE.FINISH_ELEMENT, at = {char = i - choff, line = line}})
-                    i = i + 1
-                elseif c == ";" then
-                    table.insert(tokens, {type = TOKENTYPE.FINISH_ACTION, at = {char = i - choff, line = line}})
-                    i = i + 1
-                else
-                    error("Unexpected character: '" .. c .. "' at line:"..tostring(line)..", char:"..tostring(i - choff), 2)
-                end
-            end
-            return tokens
-        end
-        return function (src)
-            local tokens = tokenize(src)
-            local ast, pos = parse_sequence(tokens, 1)
-            if pos <= #tokens then
-                error("Parse error: extra tokens after sequence", 2)
-            end
-            return ast
-        end 
-    end)() -- returns src's AST prepared for loading into NegI state via FLESH.load (and yes, it's a function constructor)
 } end)()
 
 --[[
