@@ -30,7 +30,8 @@ return (function ()
             if value ~= nil then
                 views[1][index] = value
                 views[2][value] = index
-            else
+            elseif index == nil then error("expected index, got nil", 2)
+            elseif views[1][index] ~= nil then
                 views[2][views[1][index]] = nil
                 views[1][index] = nil end end
         local FLESH = { -- stands for "Fixed Local Environment Shared Handles"
@@ -108,7 +109,7 @@ return (function ()
                         local rt = db[b]
                         frame_entry(self, b, rt)
                         rt.records[#self.layers] = nil
-                        if (rt.order.lo[#self.layers] == rt.order.ol[#rt.order.ol]) then
+                        if (#self.layers == rt.order.ol[#rt.order.ol]) then
                             bimap_write(rt.order, "lo", #self.layers, nil)
                         else error("KES:pop_layer - invalid layer in unload transaction query. [Z_Z] Currently I'm thinking to keep it as user error or make code for handling this.", 2) end
                         if #rt.records <= 0 then db[b] = nil; bimap_write(self.labels, "bl", b, nil) end end
@@ -195,12 +196,7 @@ return (function ()
                     frame_state = frame_state or {labels = {lb={},bl={}}, bindings = {}} -- when provided, pours effects directly
                     for b,_ in pairs(self.layers[layer_id].c) do
                         frame_state.bindings[#frame_state.bindings+1] = {delta = self.bindings[b].records[#self.layers]}
-                        pprint(frame_state)
-                        bimap_write(
-                            frame_state.labels,
-                             "bl",
-                              #frame_state.bindings,
-                               self.labels[b]) end
+                        bimap_write(frame_state.labels, "bl", #frame_state.bindings, self.labels[b]) end
                     return frame_state end,
                 inner_snapshot = function (self) -- used in Frame, in order to track writes
                     return self:direct_snapshot(#self.layers)
