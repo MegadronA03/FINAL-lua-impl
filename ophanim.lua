@@ -211,6 +211,12 @@ return (function ()
                     -- though I think I can provide an interface for KES access through special resolves per layers, instead of doing all of this
                     -- THIS IS AN AUTHORITY FOR DEBUGGER, THIS VIOLATES SECURITY GUARANTEES
                 end,
+                log_bindings = function (self, table_print)
+                    for b,d in pairs(self.bindings) do
+                        io.write((self.labels[b] or "<binding "..tostring(b)..">")..": ")
+                        table_print(d.records)
+                    end
+                end,
                 --binding_label_get = function (self, b) return self.labels.bl[b] end, -- Used by Frame to make label list. probably pe replaced by 'pop_layer' Frame return
             },
             dispatch = function (self, lterm, rterm, protocol) -- this is solid, except capchecks and 
@@ -797,7 +803,8 @@ return (function ()
                         end]])},
                     },
                     get = FLESH.make.Artifact([[return function (self) 
-                        return FLESH.make.String(self.state.name)
+                        local m, _ = FLESH.KES:resolve(self.state.name)
+                        return m or FLESH.NegI.Manifests.gap
                     end]])
             }),
             Frame = FLESH.make.Manifest({

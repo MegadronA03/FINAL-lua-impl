@@ -16,10 +16,14 @@ while true do
         break
     else
         local pres = OState.NegI.parse(input)
-        pprint(pres)
+        --pprint(pres)
         --print("unhandled:")
-        --pprint(OState:dispatch(pres))
-        --OState.KES:commit()
+        local r = OState:dispatch(pres)
+        OState.KES:stage_fill_reserve(r)
+        OState.KES:commit()
+        pprint(r)
+        --pprint(OState.KES.bindings)
+        --OState.KES:log_bindings(pprint)
     end
 end
 -- starting to make the system alive
