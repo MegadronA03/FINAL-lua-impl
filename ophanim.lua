@@ -81,7 +81,9 @@ return (function ()
                         s = {a={},e={},r={}}, -- staged entries data: aliases(aka refs), entries and reserved aliases
                         c = context or {}} -- `c` is Set<reference: Number|String, exist: Boolean> references relvant to this context layer
                     if isolated then bimap_write(self.isolations, "od", #self.isolations.od+1, l.d) end -- isolated (external binding resolving, causes it to use resolving oblivious to effects from here)
-                    for d = #self.relevance.dl, l.d, -1 do -- exclude all layers between parent and new layer via depth
+                    print("--cdepth: "..tostring(#self.relevance.dl)..", ndepth: "..tostring(l.d))
+                    for d = #self.relevance.dl, l.d, -1 do -- exclude all layers between parent and new layer (excluding it) via depth
+                        print(d)
                         l.h.r[#l.h.r+1] = self.relevance.dl[d] -- hide layers (we can ask depth form them directly)
                         bimap_write(self.relevance, "dl", d, nil) -- removing irrelevant layers
                         if self.isolations["do"][d] then -- check if there is isolation
@@ -166,6 +168,8 @@ return (function ()
                     for _,i in ipairs(stage.r) do self:stage_entry(data, i) end
                 end,
                 commit = function (self) -- apply staged changes
+                    print("commit layer:"..tostring(#self.layers))
+                    print("commit depth:"..tostring(self.layers[#self.layers].d))
                     local stage = self.layers[#self.layers].s
                     local wue = true and function (self, e)
                         e.b[#e.b+1] = self:write_entry(nil, e.d)
@@ -227,6 +231,13 @@ return (function ()
                 protocol = protocol or lterm.protocol -- protocol argument is optional and here only for convinience, so I don't have to recreate manifest with transformed protocols
                 if protocol then
                     if rterm then
+                        if protocol.pass then -- when sole protocol existance is to pass negotiation along with some caveats
+                            --print("pass?")
+                            local artifact_p = self.NegI.Manifests.Artifact -- currently it's tightly coupled, I'll need to slightly rework this
+                            local clause = protocol.pass
+                            if self.capcheck(artifact_p, clause) then return clause.state.artifact(lterm, rterm)
+                                else return self:dispatch(clause, self.make.Frame({self = lterm, arg = rterm})) end
+                        end
                         if protocol.can then -- both "can" and "ask" may not be fulfilled unlike "can" or "get" or abscense of protocol clauses
                             --print("can?")
                             local label_p = self.NegI.Manifests.Label -- we use direct access, because this stuff will depend on furst record anyways
@@ -237,7 +248,6 @@ return (function ()
                             --print("ask?")
                             local artifact_p = self.NegI.Manifests.Artifact -- currently it's tightly coupled, I'll need to slightly rework this
                             local label_p = self.NegI.Manifests.Label
-                            local frame_p = self.NegI.Manifests.Frame
                             local clause = protocol.ask
                             if self.capcheck(label_p, rterm) then if self.capcheck(artifact_p, clause) then return clause.state.artifact(lterm, rterm)
                                 else return self:dispatch(clause, self.make.Frame({self = lterm, arg = rterm})) end end end
@@ -380,29 +390,33 @@ return (function ()
         end
 
         FLESH.intentcheck = function(self, arg) -- State intent of manifests are matching?
-            for i,e in pairs(self.state) do
-                if (arg.protocol[i] ~= e) then
-                    return false end end
-            if self.state.can ~= arg.protocol.can then return false
-            elseif self.state.can and arg.protocol.can then
-                for i,e in pairs(self.state.can) do
-                    if (arg.protocol.can[i] ~= e) then
-                        return false end end 
-            end
+            if self.state == arg.protocol then return true
+            elseif self.state and arg.protocol then
+                for i,e in pairs(self.state) do
+                    if (arg.protocol[i] ~= e) then
+                        return false end end
+                if self.state.can == arg.protocol.can then return true
+                elseif self.state.can and arg.protocol.can then
+                    for i,e in pairs(self.state.can) do
+                        if (arg.protocol.can[i] ~= e) then
+                            return false end end 
+            end end
             return true end
 
         FLESH.capcheck = function(self, arg) -- Even through fallbacks, is manifest implements this protocol?
             -- TODO: check protocol in flat form, we need to make sure clauses are reachable, not that there is inside chain some Manifest that satisfy intent.
             local fail = function () return arg.protocol.get and FLESH.capcheck(self, FLESH:dispatch(arg, nil)) or false end
-            for i,e in pairs(self.state) do
-                if (arg.protocol[i] ~= e) then
-                    return fail() end end
-            if self.state.can ~= arg.protocol.can then return fail()
-            elseif self.state.can and arg.protocol.can then
-                for i,e in pairs(self.state.can) do
-                    if (arg.protocol.can[i] ~= e) then
-                        return fail() end end 
-            end
+            if self.state == arg.protocol then return true
+            elseif self.state and arg.protocol then
+                for i,e in pairs(self.state) do
+                    if (arg.protocol[i] ~= e) then
+                        return fail() end end
+                if self.state.can == arg.protocol.can then return true
+                elseif self.state.can and arg.protocol.can then
+                    for i,e in pairs(self.state.can) do
+                        if (arg.protocol.can[i] ~= e) then
+                            return fail() end end 
+            end end
             return true end
 
         --common between protocol manifests
@@ -889,7 +903,7 @@ return (function ()
                                 e = FLESH:dispatch(e, nil)
                                 FLESH.KES:stage_fill_reserve((e ~= FLESH.NegI.Manifests.gap) and e or nil)
                                 FLESH.KES:commit() end end
-                        return FLESH:dispatch(self.state.creturn, nil)
+                        return self.state.creturn and FLESH:dispatch(self.state.creturn) or FLESH.NegI.Manifests.gap
                     end]], "Sequence call")
             }),
             Membrane = FLESH.make.Manifest({ -- represent the layers and how they affect environment
@@ -901,10 +915,19 @@ return (function ()
                 get = FLESH.make.Artifact([[return function (self)
                     local parent = self.state.quoted and FLESH.KES:unquote_parent(self.state.parent) or self.state.parent
                     FLESH.KES:push_layer(parent, self.state.contain)
+                    print("current: "..FLESH.KES:get_context()..", parent: "..parent)
                     local output = FLESH:dispatch(self.state.content or FLESH.NegI.Manifests.gap)
                     FLESH.KES:pop_layer()
                     return output
                 end]], "Membrane get"),
+                pass = FLESH.make.Artifact([[return function (self, arg)
+                    local parent = self.state.quoted and FLESH.KES:unquote_parent(self.state.parent) or self.state.parent
+                    FLESH.KES:push_layer(parent, self.state.contain)
+                    print("current: "..FLESH.KES:get_context()..", parent: "..parent)
+                    local output = FLESH:dispatch(self.state.content or FLESH.NegI.Manifests.gap, arg or FLESH.NegI.Manifests.gap)
+                    FLESH.KES:pop_layer()
+                    return output
+                end]], "Membrane pass")
             }), -- I think I should make distinction between Membranes, though parent Manifest with inherited capabilities will be here
             Make = FLESH.make.Manifest({ -- aka [] or grounded (because push_layer will be grounded by default)
                 can = {
@@ -913,11 +936,11 @@ return (function ()
                 }
             },{
                 get = FLESH.make.Artifact([[return function (self)
-                    return FLESH:dispatch(FLESH.make.Manifest(FLESH.NegI.Manifests.Membrane.state, {
+                    return self.state and FLESH.make.Manifest(FLESH.NegI.Manifests.Membrane.state, {
                         parent = FLESH.KES:get_context(),
                         contain = false,
                         quoted = false,
-                        content = self.state}))
+                        content = FLESH:dispatch(self.state)}) or FLESH.NegI.Manifests.gap
                 end]], "Make get")
             }),
             Quote = FLESH.make.Manifest({ -- aka {} or dynamic (because it will shift parent within isolation)
@@ -941,11 +964,11 @@ return (function ()
                 }
             },{
                 get = FLESH.make.Artifact([[return function (self)
-                    return FLESH:dispatch(FLESH.make.Manifest(FLESH.NegI.Manifests.Membrane.state, {
+                    return self.state and FLESH.make.Manifest(FLESH.NegI.Manifests.Membrane.state, {
                         parent = FLESH.KES:get_context(),
                         contain = true,
                         quoted = false,
-                        content = self.state}))
+                        content = FLESH:dispatch(self.state)}) or FLESH.NegI.Manifests.gap
                 end]], "Contain get")
             }),
             Negotiation = FLESH.make.Manifest({
