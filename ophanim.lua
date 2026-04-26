@@ -160,8 +160,8 @@ return (function ()
                     return stage_id
                 end,
                 stage_fill_reserve = function (self, data)
-                    if (type(data) == "table" and data.protocol and data.state) then
-                        if (#data.protocol <= 0 and #data.state <= 0) then data = nil end -- somewhat hacky, but good enough for a `gap` check
+                    if (data and data.protocol) then
+                        if (#data.protocol <= 0) then data = nil end -- somewhat hacky, but good enough for a `gap` check. Native might not like this
                     else data = nil end
                     local stage = self.layers[#self.layers].s
                     for _,i in ipairs(stage.r) do self:stage_entry(data, i) end
