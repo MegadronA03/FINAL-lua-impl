@@ -160,9 +160,7 @@ return (function ()
                     return stage_id
                 end,
                 stage_fill_reserve = function (self, data)
-                    if (data and data.protocol) then
-                        if (#data.protocol <= 0) then data = nil end -- somewhat hacky, but good enough for a `gap` check. Native might not like this
-                    else data = nil end
+                    --if (data == self.gap_proto) then data = nil end -- somewhat hacky, but good enough for a `gap` check. Native might not like this
                     local stage = self.layers[#self.layers].s
                     for _,i in ipairs(stage.r) do self:stage_entry(data, i) end
                 end,
@@ -794,8 +792,22 @@ return (function ()
             ["false"] = FLESH.make.Manifest("Number",0), -- sugar
             ["true"] = FLESH.make.Manifest("Number",1), -- sugar
             gap = FLESH.make.Manifest({},{}), -- it's fine, that's how it should be
-            Number = FLESH.make.Manifest({},{can = {}}), -- need to make generic host agnostic number representation (maybe even Rational out of 2 BigIntegers or just BigInteger to not conflate these 2 for the compilation process)
-            String = FLESH.make.Manifest({},{can = {}}), -- some languages might have to emulate this
+            Number = FLESH.make.Manifest({
+                can = {
+                    ["in"] = {call = capability_check},
+                    ["="] = {call = FLESH.make.Artifact([[]])}
+                }},{
+                    can = {},
+                    call = "stub"
+                }), -- need to make generic host agnostic number representation (maybe even Rational out of 2 BigIntegers or just BigInteger to not conflate these 2 for the compilation process)
+            String = FLESH.make.Manifest({
+                can = {
+                    ["in"] = {call = capability_check},
+                    ["="] = {call = FLESH.make.Artifact([[]])}
+                }},{
+                    can = {},
+                    call = "stub"
+                }), -- some hosts might have to emulate this
             Label = FLESH.make.Manifest({ -- it's job is to represent a get query from KES to load manifests
                 can = {
                     ["in"] = {call = capability_check},
@@ -804,7 +816,7 @@ return (function ()
                     can = {
                         [":"] = {get = FLESH.make.Artifact([[return function (self)
                             FLESH.KES:stage_alias(self.state.name)
-                            return { 
+                            return {
                                 protocol = { call = FLESH.make.Artifact("return function (self, arg) return arg end")},
                                 state = self.state.name }end]])},
                         ["name"] = {get = FLESH.make.Artifact([[return function (self)
@@ -865,7 +877,7 @@ return (function ()
                         for i,e in ipairs(prods) do
                             if (e.protocol.get) then
                                 e = FLESH:dispatch(e, nil)
-                                FLESH.KES:stage_fill_reserve(e)
+                                FLESH.KES:stage_fill_reserve((e ~= FLESH.NegI.Manifests.gap) and e or nil)
                                 FLESH.KES:commit() end end
                         return FLESH:dispatch(self.state.creturn, nil)
                     end]])
@@ -989,7 +1001,7 @@ return (function ()
                             local items = self.state.items
                             local labels = table.create and {lb=table.create(0,#items),bl=table.create(0,#items)} or {lb={},bl={}}
                             --FLESH.KES:push_layer(FLESH.KES:get_context(), true)
-                            for i,m in ipairs(items) do FLESH.KES:stage_fill_reserve(FLESH:dispatch(m)) end
+                            for i,m in ipairs(items) do e = FLESH:dispatch(m); FLESH.KES:stage_fill_reserve((e ~= FLESH.NegI.Manifests.gap) and e or nil) end
                             FLESH.KES:commit(true) -- this could be used mid Sequence, this emergently allow to shuffle labels around
                             return {
                                 protocol = FLESH.NegI.Manifests.Frame.state,
