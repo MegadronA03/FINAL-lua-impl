@@ -126,12 +126,13 @@ return (function ()
                         iso_depth = self.isolations.od[iso_depth_i]
                         iso_depth_i = iso_depth_i - 1 end
                     if (iso_depth) then -- if dynamic defined outside isolation, then it shouldn't consider effect of isolation
-                        parent = self.relevance.dl[iso_depth - 1] -- find parent of layer outside of isolation
+                        return self.relevance.dl[iso_depth - 1] -- find parent of layer outside of isolation
                         --p_depth = (parent and (self.layers[parent].d) or 0) -- parent depth
+                    else
+                        return #self.layers 
                     end
-                    return parent
                 end,
-                get_context = function (self) return #self.layers end, -- used by Sequence to memorise context for later use
+                get_context = function (self) return #self.layers end, -- used by Membranes to memorize context for later use
                 stage_resolve_id = function (self, ref) return self.layers[#self.layers].s.a[ref] end,
                 stage_entry = function (self, data, stage_id) -- when `ref` is present, it updates info that references existing entry
                     local stage = self.layers[#self.layers].s
@@ -358,7 +359,7 @@ return (function ()
                     chunk = chunk,
                     chunkname = chunkname,
                     mode = mode,
-                    env = env,
+                    --env = env,
                     artifact = result})
         end
 
@@ -916,7 +917,7 @@ return (function ()
                     end]])
             }),
         }
-        
+
         FLESH.KES:write_entry("NegI", FLESH.make.Frame(FLESH.NegI.Manifests))
 
         FLESH.NegI.parse = (function ()
@@ -948,7 +949,7 @@ return (function ()
             -- Internal AST node creators (for parser output)
             local AST = { -- refactoring the Sequence generator for parser
                 GAP = function () 
-                    return nil -- we don't have anything on here
+                    return FLESH.NegI.Manifests.gap -- we don't have anything on here
                 end,
                 NUMBER = function (value)
                     return {
@@ -970,7 +971,7 @@ return (function ()
                             local items = self.state.items
                             local labels = table.create and {lb=table.create(0,#items),bl=table.create(0,#items)} or {lb={},bl={}}
                             --FLESH.KES:push_layer(FLESH.KES:get_context(), true)
-                            for i,m in ipairs(items) do FLESH.KES:stage_fill_reserve(FLESH:dispatch(m, nil)) end
+                            for i,m in ipairs(items) do FLESH.KES:stage_fill_reserve(FLESH:dispatch(m)) end
                             FLESH.KES:commit(true) -- this could be used mid Sequence, this emergently allow to shuffle labels around
                             return {
                                 protocol = FLESH.NegI.Manifests.Frame.state,
