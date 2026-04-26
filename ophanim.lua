@@ -3,8 +3,6 @@
 -- 2. Just finish manifests (Especially Error, to check if we getting stuck in halt)
 -- 3. Tokens should keep track of current evaluated data by having access to the Host device (like Artifacts do), but here in PoC we just refere to it directly through FISH due to "it's convinient" and "that stuff is depandant on host"
 
--- Major problems that keep this project from testing phase is 2
-
 return (function ()
     --Frontend: NegI - Negotiation Interface (the interface, what is developed, that's the front name)
     --Backend: OPHANIM - Ontological Polymorphic Host for Authority and Negotiation Interface Management (the substrate, NegI implementation)
@@ -124,7 +122,7 @@ return (function ()
                 unquote_parent = function (self, parent) -- get parent of unquotation
                     local p_depth = (parent and self.layers[parent].d or 0) -- parent depth
                     local iso_depth_i, iso_depth = #self.isolations.od, nil
-                    while ((self.isolations.od[iso_depth_i] or 0) > p_depth) -- we check if layer definition was outside of isolation. also binary search could be applied here
+                    while ((self.isolations.od[iso_depth_i] or 0) > p_depth) do -- we check if layer definition was outside of isolation. also binary search could be applied here
                         iso_depth = self.isolations.od[iso_depth_i]
                         iso_depth_i = iso_depth_i - 1 end
                     if (iso_depth) then -- if dynamic defined outside isolation, then it shouldn't consider effect of isolation
@@ -134,7 +132,7 @@ return (function ()
                     return parent
                 end,
                 get_context = function (self) return #self.layers end, -- used by Sequence to memorise context for later use
-                stage_resolve_id = function (self, ref) return self.layers[#self.layers].s.a[ref] end
+                stage_resolve_id = function (self, ref) return self.layers[#self.layers].s.a[ref] end,
                 stage_entry = function (self, data, stage_id) -- when `ref` is present, it updates info that references existing entry
                     local stage = self.layers[#self.layers].s
                     if stage_id and stage_id > #stage.e then error("FLESH.KES:stage_entry - stage_id points to undefined entry.", 2) end
@@ -301,26 +299,37 @@ return (function ()
                     introspect = {get = "stub"}, -- can't decide on a name yet, should return ingridients for cooking the authority in question
                 call = "stub"}}
         
-        local artifact_env = {
-            -- Essential Lua Language Internals
-            pairs = pairs,
-            ipairs = ipairs,
-            next = next,
-            select = select,
-            type = type,
-            tostring = tostring,
-            tonumber = tonumber,
-            unpack = unpack or table.unpack,
-            error = error,
-            pcall = pcall,
+        local dcopy = function (t)
+            -- I need to add function for explicit import/deep copy, because currently it's not sandboxed properly
+            return t
+        end
 
-            -- I need to add function for explicit import/deep copy, because currently it's not sadboxed properly
-            table = table,
-            math = math,
-            string = string,
-            coroutine = coroutine,
-            io = io,
-            os = os,
+        local artifact_env = { -- it's an environment centered around debug tools and devlopment environment, so having all that stuff here is fine
+            -- Lua Language Internals
+            basic = basic,
+            assert = assert, error = error, warn = warn,
+            collectgarbage = collectgarbage,
+            dofile = dofile, load = load, loadfile = loadfile,
+            getmetatable = getmetatable, setmetatable = setmetatable,
+            ipairs = ipairs, pairs = pairs,
+            next = next, select = select, unpack = unpack or table.unpack,
+            pcall = pcall, xpcall = xpcall,
+            print = print,
+            rawequal = rawequal, rawget = rawget, rawlen = rawlen, rawset = rawset,
+            require = require,
+            tonumber = tonumber, tostring = tostring,
+            type = type,
+
+            -- it's unlikely that those get modified. in some cases they might be abscent or not full
+            table = dcopy(table),
+            math = dcopy(math),
+            string = dcopy(string),
+            utf8 = dcopy(utf8),
+            debug = dcopy(debug),
+            coroutine = dcopy(coroutine),
+            io = dcopy(io),
+            os = dcopy(os),
+            package = dcopy(package),
         
             -- The OPHANIM Substrate
             -- Artifacts MUST use this to interact with the system.
@@ -330,11 +339,19 @@ return (function ()
         FLESH.make.Artifact = function (chunk, chunkname, mode)
             chunkname = chunkname or "chunk"
             local a, e = load(chunk, "OPHANIM:"..chunkname, mode, artifact_env)
-            if (a) then a, e = pcall(a) end
             if (e) then
                 local error_p = FLESH.NegI.Manifests.Error
                 if error_p then return FLESH.make.Manifest(
                     error_p.state, {desc = "Artifact: Failed to load "..chunkname.." due to host error: "..e})
+                else print("in ```lua\n"..chunk.."\n```"); error("FLESH.make.Artifact - Artifact construction failed on NegI sys init due to host error:"..tostring(e), 2) end
+            end
+            ok, result = pcall(a)
+            local callable_result = (type(a) == "function") or (getmetatable(a).__call)
+            if (not callable_result) then
+                if (not callable_result and ok) then result = "provided code is not callable!" end
+                local error_p = FLESH.NegI.Manifests.Error
+                if error_p then return FLESH.make.Manifest(
+                    error_p.state, {desc = "Artifact: Failed to load "..chunkname.." due to host error: "..result})
                 else print("in ```lua\n"..chunk.."\n```"); error("FLESH.make.Artifact - Artifact construction failed on NegI sys init due to host error:"..tostring(e), 2) end
             end
             return FLESH.make.Manifest(FLESH.NegI.Manifests.Artifact.state, {
@@ -342,7 +359,7 @@ return (function ()
                     chunkname = chunkname,
                     mode = mode,
                     env = env,
-                    artifact = a})
+                    artifact = result})
         end
 
         FLESH.intentcheck = function(self, arg) -- State intent of manifests are matching?
@@ -395,7 +412,7 @@ return (function ()
         FLESH.make.Number = function (val)
             return (({
                 number = function (num) return FLESH.make.Manifest(FLESH.NegI.Manifests.Number.state, num) end,
-                boolean = function (bool) return bool and FLESH.NegI.Manifests.true or FLESH.NegI.Manifests.false end 
+                boolean = function (bool) return bool and FLESH.NegI.Manifests["true"] or FLESH.NegI.Manifests["false"] end 
             })[type(val)] or (function (val) return FLESH.make.Error("invalid type (rework this error)") end))(val)
         end
 
@@ -423,8 +440,8 @@ return (function ()
         local make_host_res_init = function (host_type)
             return FLESH.make.Artifact([[return function (self, arg)
                 -- wrap host resource manifest
+                if (type(arg) == "]]..host_type..[[") then return {protocol = self.state,state = arg} end
                 if (FLESH.capcheck(self,arg)) then return arg end -- literal uses same protocol, so we just passing
-                if (type(arg) == "]]..host_type..[[") then return {protocol = self.state,state = arg}} end
                 return -- Error manifest
             end]])
         end
@@ -520,7 +537,7 @@ return (function ()
                         ["~="] = {call = make_trans_op("~=")},
                         format = {call = FLESH.make.Artifact([[return function (self, arg)
                             -- check if arg is frame and go on
-                        ]])},
+                        end]])},
                         size = {get = make_trans("string.len")},
                         lower = {get = make_trans("string.lower")},
                         upper = {get = make_trans("string.upper")},
@@ -565,12 +582,7 @@ return (function ()
             table = FLESH.make.Manifest({ -- this also somewhat capability wildcard, but the importer uses different protocol for table, if it's table isn't empty
                     can = {
                         ["in"] = {call = capability_check},
-                        ["="] = FLESH.make.Artifact([[return function (self, arg)
-                            -- create from table literal and native
-                            if (FLESH.capcheck(self,arg)) then return arg end -- literal uses same protocol, so we just passing
-                            if (type(arg) == "table") then return {protocol = self.state,state = arg}} end
-                            return -- Error manifest
-                        end]])
+                        ["="] = make_host_res_init("table")
                 },{
                     can = {
                         ["+"] = {call = make_trans_op("..")},
@@ -757,7 +769,7 @@ return (function ()
             ["//"] = FLESH.make.Manifest({
                 call = FLESH.make.Artifact("return function (self, arg) return { protocol = { call = FLESH.make.Artifact(\"return function (self, arg) return arg end\")}} end")},{}),
             pass = FLESH.make.Manifest({ -- TODO: explicitly ends Sequence with appropriate data. monad where first is to where and 2nd is data
-                call = artifact_p([[return function (self, arg)
+                call = FLESH.make.Artifact([[return function (self, arg)
                     
                 end]])
             },{}),
@@ -803,14 +815,14 @@ return (function ()
                             end
                         end]])},
                         ["."] = {get = FLESH.make.Artifact([[return function (self) --TODO
-                            self.state.labels
+                            --self.state.labels
                         end]])},
                     },
                     call = FLESH.make.Artifact([[return function (self, arg) 
                         local num_p = FLESH.NegI.Manifests.Number
                         if (FLESH.capcheck(num_p, arg)) then
 
-                        else if (FLESH.capcheck({state = self.protocol}, arg) and arg) then -- slicing in python style
+                        elseif (FLESH.capcheck({state = self.protocol}, arg) and arg) then -- slicing in python style
 
                         else
 
