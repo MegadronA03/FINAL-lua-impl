@@ -710,8 +710,8 @@ return (function ()
                         if (FLESH.capcheck(frame_p, arg)) then FLESH:dispatch(arg,nil,arg.protocol.can.load) end
                         for i,e in ipairs(prods) do
                             e = e or FLESH.NegI.Manifests.gap
-                            e = FLESH:dispatch(e); e = e or FLESH.NegI.Manifests.gap
-                            e = FLESH:dispatch(e); e = (e ~= FLESH.NegI.Manifests.gap) and e or nil
+                            e = FLESH:dispatch(e); e = e or FLESH.NegI.Manifests.gap -- evaluation
+                            e = FLESH:dispatch(e); e = (e ~= FLESH.NegI.Manifests.gap) and e or nil -- get
                             FLESH.KES:stage_fill_reserve(e)
                             FLESH.KES:commit() end
                         return self.state.creturn and FLESH:dispatch(self.state.creturn) or FLESH.NegI.Manifests.gap
@@ -1137,8 +1137,8 @@ return (function ()
                             local items = self.state.items
                             local labels = table.create and {lb=table.create(0,#items),bl=table.create(0,#items)} or {lb={},bl={}}
                             for i,e in ipairs(items) do 
-                                e = FLESH:dispatch(e); e = e or FLESH.NegI.Manifests.gap
-                                e = FLESH:dispatch(e); e = (e ~= FLESH.NegI.Manifests.gap) and e or nil
+                                e = FLESH:dispatch(e); e = e or FLESH.NegI.Manifests.gap -- evaluation
+                                e = FLESH:dispatch(e); e = (e ~= FLESH.NegI.Manifests.gap) and e or nil -- get
                                 if FLESH.KES:stage_reserved() then 
                                     FLESH.KES:stage_fill_reserve(e) else
                                     FLESH.KES:stage_entry(e) end end

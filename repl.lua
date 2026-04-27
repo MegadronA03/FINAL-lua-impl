@@ -46,8 +46,8 @@ while true do
         break
     else
         local e = OState.NegI.parse(input) or OState.NegI.Manifests.gap
-        e = OState:dispatch(e); e = e or OState.NegI.Manifests.gap
-        e = OState:dispatch(e); e = (e ~= OState.NegI.Manifests.gap) and e or nil
+        e = OState:dispatch(e); e = e or OState.NegI.Manifests.gap -- evaluation
+        e = OState:dispatch(e); e = (e ~= OState.NegI.Manifests.gap) and e or nil -- get
         OState.KES:stage_fill_reserve(e)
         OState.KES:commit()
         pprint(e)
