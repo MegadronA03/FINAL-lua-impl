@@ -302,13 +302,7 @@ return (function ()
                 protocol = protocol or lterm.protocol -- protocol argument is optional and here only for convinience, so I don't have to recreate manifest with transformed protocols
                 if protocol then
                     if rterm then
-                        if protocol.pass then -- when sole protocol existance is to pass negotiation along with some caveats
-                            --print("pass?")
-                            local artifact_p = self.NegI.Manifests.Artifact -- currently it's tightly coupled, I'll need to slightly rework this
-                            local clause = protocol.pass
-                            if self.capcheck(artifact_p, clause) then return clause.state.artifact(lterm, rterm)
-                                else return self:dispatch(clause, self.make.Frame({self = lterm, arg = rterm})) end
-                        end
+                        
                         if protocol.can then -- both "can" and "ask" may not be fulfilled unlike "can" or "get" or abscense of protocol clauses
                             --print("can?")
                             local label_p = self.NegI.Manifests.Label -- we use direct access, because this stuff will depend on furst record anyways
@@ -331,6 +325,12 @@ return (function ()
                             return self.capcheck(artifact_p, clause) and
                                 (clause.state.artifact(lterm, rterm) or self.NegI.Manifests.gap) or
                                 self:dispatch(clause, self.make.Frame({self = lterm, arg = rterm})) -- needs some standartization on how this should be passed around, don't like hardcoded "self" and "arg"
+                        elseif protocol.pass then -- when sole protocol existance is to pass negotiation along with some caveats
+                            --print("pass?")
+                            local artifact_p = self.NegI.Manifests.Artifact -- currently it's tightly coupled, I'll need to slightly rework this
+                            local clause = protocol.pass
+                            if self.capcheck(artifact_p, clause) then return clause.state.artifact(lterm, rterm)
+                                else return self:dispatch(clause, self.make.Frame({self = lterm, arg = rterm})) end
                         elseif protocol.get then -- fallback to underlying manifest for an answer
                             --print("get.")
                             local artifact_p = self.NegI.Manifests.Artifact
@@ -1042,7 +1042,7 @@ return (function ()
                         content = FLESH:dispatch(self.state)}) or FLESH.NegI.Manifests.gap
                 end]], "Contain get")
             }),
-            Negotiation = FLESH.make.Manifest({
+            Negotiation = FLESH.make.Manifest({ -- aka jusxtaposition
                 can = {
                     ["in"] = {call = capability_check},
                     ["="] = {call = FLESH.make.Artifact([[]])}
