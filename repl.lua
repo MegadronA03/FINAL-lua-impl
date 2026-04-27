@@ -45,10 +45,12 @@ while true do
     if input == "exit" then -- reimplement as manifest in REPL Frame
         break
     else
-        local r = OState:dispatch(OState.NegI.parse(input) or OState.NegI.Manifests.gap)
-        OState.KES:stage_fill_reserve((r ~= OState.NegI.Manifests.gap) and r or nil)
+        local e = OState.NegI.parse(input) or OState.NegI.Manifests.gap
+        e = OState:dispatch(e); e = e or OState.NegI.Manifests.gap
+        e = OState:dispatch(e); e = (e ~= OState.NegI.Manifests.gap) and e or nil
+        OState.KES:stage_fill_reserve(e)
         OState.KES:commit()
-        pprint(r)
+        pprint(e)
     end
 end
 OState.KES:pop_layer()

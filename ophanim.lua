@@ -685,7 +685,7 @@ return (function ()
                         local num_p = FLESH.NegI.Manifests.Number
                         local str_p = FLESH.NegI.Manifests.String
                         if (FLESH.capcheck(num_p, arg) or FLESH.capcheck(str_p, arg)) then
-                            return FLESH:dispatch(FLESH.NegI.Intrinsincs.frame_index(self.state, arg.state) or FLESH.NegI.Manifests.gap)
+                            return FLESH.NegI.Intrinsincs.frame_index(self.state, arg.state) or FLESH.NegI.Manifests.gap
                         elseif (FLESH.capcheck({state = self.protocol}, arg) and arg) then -- slicing in python style
                             
                         else
@@ -709,10 +709,11 @@ return (function ()
                         local frame_p = FLESH.NegI.Manifests.Frame
                         if (FLESH.capcheck(frame_p, arg)) then FLESH:dispatch(arg,nil,arg.protocol.can.load) end
                         for i,e in ipairs(prods) do
-                            if (e.protocol.get) then
-                                e = FLESH:dispatch(e, nil)
-                                FLESH.KES:stage_fill_reserve((e ~= FLESH.NegI.Manifests.gap) and e or nil)
-                                FLESH.KES:commit() end end
+                            e = e or FLESH.NegI.Manifests.gap
+                            e = FLESH:dispatch(e); e = e or FLESH.NegI.Manifests.gap
+                            e = FLESH:dispatch(e); e = (e ~= FLESH.NegI.Manifests.gap) and e or nil
+                            FLESH.KES:stage_fill_reserve(e)
+                            FLESH.KES:commit() end
                         return self.state.creturn and FLESH:dispatch(self.state.creturn) or FLESH.NegI.Manifests.gap
                     end]], "Sequence call")
             }),
@@ -722,14 +723,14 @@ return (function ()
                     ["="] = {call = FLESH.make.Artifact([[]])}
                 }
             },{
-                get = FLESH.make.Artifact([[return function (self)
-                    local parent = self.state.quoted and FLESH.KES:unquote_parent(self.state.parent) or self.state.parent
-                    FLESH.KES:push_layer(parent, self.state.contain)
-                    --print("current: "..FLESH.KES:get_context()..", parent: "..parent)
-                    local output = FLESH:dispatch(self.state.content or FLESH.NegI.Manifests.gap)
-                    FLESH.KES:pop_layer()
-                    return output
-                end]], "Membrane get"),
+                --get = FLESH.make.Artifact([[return function (self)
+                --    local parent = self.state.quoted and FLESH.KES:unquote_parent(self.state.parent) or self.state.parent
+                --    FLESH.KES:push_layer(parent, self.state.contain)
+                --    --print("current: "..FLESH.KES:get_context()..", parent: "..parent)
+                --    local output = FLESH:dispatch(self.state.content or FLESH.NegI.Manifests.gap)
+                --    FLESH.KES:pop_layer()
+                --    return output
+                --end]], "Membrane get"),
                 pass = FLESH.make.Artifact([[return function (self, arg)
                     local parent = self.state.quoted and FLESH.KES:unquote_parent(self.state.parent) or self.state.parent
                     FLESH.KES:push_layer(parent, self.state.contain)
@@ -1135,8 +1136,9 @@ return (function ()
                         protocol = {get = FLESH.make.Artifact([[return function (self)
                             local items = self.state.items
                             local labels = table.create and {lb=table.create(0,#items),bl=table.create(0,#items)} or {lb={},bl={}}
-                            for i,m in ipairs(items) do 
-                                e = FLESH:dispatch(m); e = (e ~= FLESH.NegI.Manifests.gap) and e or nil
+                            for i,e in ipairs(items) do 
+                                e = FLESH:dispatch(e); e = e or FLESH.NegI.Manifests.gap
+                                e = FLESH:dispatch(e); e = (e ~= FLESH.NegI.Manifests.gap) and e or nil
                                 if FLESH.KES:stage_reserved() then 
                                     FLESH.KES:stage_fill_reserve(e) else
                                     FLESH.KES:stage_entry(e) end end
