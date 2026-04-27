@@ -396,9 +396,9 @@ return (function ()
                     ["="] = {call = "stub"}}},
             state = {
                 can = {
-                    reload = {get = "stub"}},
-                    introspect = {get = "stub"}, -- can't decide on a name yet, should return ingridients for cooking the authority in question
-                call = "stub"}}
+                    reload = {get = "stub"},
+                    introspect = {can = {}}, -- can't decide on a name yet, should return ingridients for cooking the authority in question
+                call = "stub"}}}
         
         local dcopy = function (t)
             -- I need to add function for explicit import/deep copy, because currently it's not sandboxed properly
@@ -497,11 +497,13 @@ return (function ()
         local capability_check = FLESH.make.Artifact([[return function (self, arg)
             return FLESH.make.Number(FLESH.capcheck(self, arg)) end]], "`in` aka capcheck")
         
-        FLESH.NegI.Manifests.Artifact.protocol.can["in"] = capability_check
-        FLESH.NegI.Manifests.Artifact.protocol.can["="] = FLESH.make.Artifact([[return function (self, arg) end]], "Artifact can =")
-        FLESH.NegI.Manifests.Artifact.state.can.reload = FLESH.make.Artifact([[return function (self)
-            return FLESH.make.Artifact(self.state.chunk, self.state.chunkname, self.state.mode, self.state.env) end]], "Artifact can reload")
-        FLESH.NegI.Manifests.Artifact.state.can.introspect = FLESH.make.Artifact([[return function (self, arg) end]], "Artifact can intospect")
+        FLESH.NegI.Manifests.Artifact.protocol.can["in"].call = capability_check
+        FLESH.NegI.Manifests.Artifact.protocol.can["="].call = FLESH.make.Artifact([[return function (self, arg) end]], "Artifact can = call")
+        FLESH.NegI.Manifests.Artifact.state.can.reload.get = FLESH.make.Artifact([[return function (self)
+            return FLESH.make.Artifact(self.state.chunk, self.state.chunkname, self.state.mode, self.state.env) end]], "Artifact can reload get")
+        FLESH.NegI.Manifests.Artifact.state.can.introspect.can = {
+            chunk = {get = FLESH.make.Artifact([[return function (self) return FLESH.make.String(self.state.chunk) end]], "Artifact can intospect can chunk get")}
+        }
         FLESH.NegI.Manifests.Artifact.state.call = FLESH.make.Artifact([[return function(self, arg)
             local tunp = unpack or table.unpack
             return self.state.artifact(tunp(arg)) end]], "Artifact call")
