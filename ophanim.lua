@@ -644,7 +644,7 @@ return (function ()
                     ["in"] = capability_check
                 }),
             ["//"] = FLESH.make.Manifest({
-                call = FLESH.make.Artifact("return function (self, arg) return { protocol = { call = FLESH.make.Artifact(\"return function (self, arg) return arg end\")}} end")},{}),
+                pass = FLESH.make.Artifact("return function (self, arg) return { protocol = { call = FLESH.make.Artifact(\"return function (self, arg) return arg end\")}} end")},{}),
             pass = FLESH.make.Manifest({ -- TODO: explicitly ends Sequence with appropriate data. monad where first is to where and 2nd is data
                 call = FLESH.make.Artifact([[return function (self, arg)
                     
@@ -678,7 +678,7 @@ return (function ()
                         [":"] = {get = FLESH.make.Artifact([[return function (self)
                             FLESH.KES:stage_alias(self.state.name)
                             return {
-                                protocol = { call = FLESH.make.Artifact("return function (self, arg) return arg end")},
+                                protocol = { pass = FLESH.make.Artifact("return function (self, arg) return arg end")},
                                 state = self.state.name }end]])},
                         ["name"] = {get = FLESH.make.Artifact([[return function (self)
                             return FLESH.make.String(self.state.name)
