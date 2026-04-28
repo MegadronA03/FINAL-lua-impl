@@ -368,23 +368,35 @@ return (function ()
 
         FLESH.make = {} -- Manifest constructors
 
+        FLESH.make.thunks = {}
+        FLESH.make.unthunk = function ()
+            for _,e in ipairs(FLESH.make.thunks) do e() end
+            FLESH.make.thunks = {} end
         FLESH.make.Manifest = function (protocol, state) -- protocols are still eager, but it's possible to do lazy clause access via "get" manifests (like quoted labels). here we just doing it via metatable because it's convinient, and I'm making a PoC, not final product yet
-            local m = {protocol = protocol, state = state}
             
-            if type(protocol) ~= "table" then 
-                local frra = FLESH.KES:resolve(protocol) -- I do wonder if I should just pull from NegI.Manifests at this point
-
-                if frra then -- convinence
-                    m.protocol = frra.state
+            local m = {protocol = protocol, state = state}
+            if type(protocol) == "table" then return m
+            elseif type(protocol) == "function" then
+                local ok, result = pcall(protocol) -- lazy dispatch 
+                
+                if ok then -- convinence
+                    return {protocol = result, state = state}
                 else
-                    setmetatable(m, { __index = function (t,k) -- lazy fetch, becuase some Manifests rely on that
-                        local v = rawget(t,k)
-                        if k == "protocol" then
-                            setmetatable(t,nil)
-                            v = FLESH.KES:resolve(v).state
-                            t.protocol = v end -- should be fine after lifting metatable
-                        return v end })end end
-            return m
+                    local dummy = {}
+                    local undummy = function ()
+                        setmetatable(dummy,nil)
+                        for k,v in pairs(m) do dummy[k] = v end
+                        dummy.protocol = m.protocol()
+                    end
+                    FLESH.make.thunks[#FLESH.make.thunks+1] = undummy
+                    setmetatable(dummy, { 
+                        __index = function (t,k) -- lazy fetch, becuase some Manifests rely on that
+                            undummy()
+                            return t[k] end,
+                        __newindex = function (t,k,v) undummy(); t[k] = v end,
+                        __len = function () return #m end })
+                    return dummy end
+            else error("protocol expected as function or table, got "..type(protocol), 2) end
         end
 
         FLESH.NegI = {Manifests = {}} -- the NegI assets
@@ -396,9 +408,9 @@ return (function ()
                     ["="] = {call = "stub"}}},
             state = {
                 can = {
-                    reload = {get = "stub"},
-                    introspect = {can = {}}, -- can't decide on a name yet, should return ingridients for cooking the authority in question
-                call = "stub"}}}
+                    reload = {get = "stub"}},
+                    introspect = {get = "stub"}, -- can't decide on a name yet, should return ingridients for cooking the authority in question
+                call = "stub"}}
         
         local dcopy = function (t)
             -- I need to add function for explicit import/deep copy, because currently it's not sandboxed properly
@@ -497,13 +509,11 @@ return (function ()
         local capability_check = FLESH.make.Artifact([[return function (self, arg)
             return FLESH.make.Number(FLESH.capcheck(self, arg)) end]], "`in` aka capcheck")
         
-        FLESH.NegI.Manifests.Artifact.protocol.can["in"].call = capability_check
-        FLESH.NegI.Manifests.Artifact.protocol.can["="].call = FLESH.make.Artifact([[return function (self, arg) end]], "Artifact can = call")
-        FLESH.NegI.Manifests.Artifact.state.can.reload.get = FLESH.make.Artifact([[return function (self)
-            return FLESH.make.Artifact(self.state.chunk, self.state.chunkname, self.state.mode, self.state.env) end]], "Artifact can reload get")
-        FLESH.NegI.Manifests.Artifact.state.can.introspect.can = {
-            chunk = {get = FLESH.make.Artifact([[return function (self) return FLESH.make.String(self.state.chunk) end]], "Artifact can intospect can chunk get")}
-        }
+        FLESH.NegI.Manifests.Artifact.protocol.can["in"] = capability_check
+        FLESH.NegI.Manifests.Artifact.protocol.can["="] = FLESH.make.Artifact([[return function (self, arg) end]], "Artifact can =")
+        FLESH.NegI.Manifests.Artifact.state.can.reload = FLESH.make.Artifact([[return function (self)
+            return FLESH.make.Artifact(self.state.chunk, self.state.chunkname, self.state.mode, self.state.env) end]], "Artifact can reload")
+        FLESH.NegI.Manifests.Artifact.state.can.introspect = FLESH.make.Artifact([[return function (self, arg) end]], "Artifact can intospect")
         FLESH.NegI.Manifests.Artifact.state.call = FLESH.make.Artifact([[return function(self, arg)
             local tunp = unpack or table.unpack
             return self.state.artifact(tunp(arg)) end]], "Artifact call")
@@ -569,24 +579,24 @@ return (function ()
             Error = FLESH.make.Manifest({ -- Error is always as valua
                 can = {
                     ["in"] = {call = capability_check},
-                    ["="] = {call = FLESH.make.Artifact([[]])}
+                    ["="] = {call = FLESH.make.Artifact([[return function (self, arg) end]])}
                 }
             },{
                 can = {
-                    name = {get = FLESH.make.Artifact([[]])}, 
+                    name = {get = FLESH.make.Artifact([[return function (self) end]])}, 
                     desc = {get = FLESH.make.Artifact([[return function (self)
                         return FLESH.make.String(tostring(self.state.desc))
                     end]])}, 
-                    caller = {get = FLESH.make.Artifact([[]])},
-                    trace = {get = FLESH.make.Artifact([[]])},
+                    caller = {get = FLESH.make.Artifact([[return function (self) end]])},
+                    trace = {get = FLESH.make.Artifact([[return function (self) end]])},
                 },    
             }),
             Token = FLESH.make.Manifest({["in"] = {call = capability_check}},{ -- adds metainfo that's used by `Error`s, so you can read the exact place of where your code failed
                 can = {
                     token = {can = {
-                        root = {get = FLESH.make.Artifact([[]])}, -- references root Token from where it is
-                        parent = {get = FLESH.make.Artifact([[]])}, -- return parent Token (probably won't add this, because I don't store that)
-                        element = {get = FLESH.make.Artifact([[]])}, -- text representation of Token
+                        root = {get = FLESH.make.Artifact([[return function (self) end]])}, -- references root Token from where it is
+                        parent = {get = FLESH.make.Artifact([[return function (self) end]])}, -- return parent Token (probably won't add this, because I don't store that)
+                        element = {get = FLESH.make.Artifact([[return function (self) end]])}, -- text representation of Token
                         id = {get = nil}, -- it's id (probably will remove it)
                         position = {get = nil}, -- position relative to root Token text representation
                         content = {get = nil}, -- return Frame with it's child Tokens (probably won't add this, because I store that in opaque non-uniform states)
@@ -608,13 +618,28 @@ return (function ()
                     end]])},
                     },
                 },{}),-- thats "any" type, there's nothing to check, because everything is a Manifest
+            ManifestMeta = FLESH.make.Manifest({ -- Protocol for Manifest Inspection/Reflection
+                can = {
+                    ["in"] = {call = capability_check}, -- capability_check is shared artifact 
+                    ["="] = {call = FLESH.make.Artifact([[return function (self, arg) return FLESH.make.Manifest(self.state, arg) end]])}, -- we don't need checks, everything is a manifest
+                    },
+                },{
+                    can = {
+                        ["=="] = {call = FLESH.make.Artifact([[return function (self, arg) 
+                            return FLESH.make.Number(rawequal(self.state, arg) == true) -- self.state have arg from `=` with both protocol and state
+                        end]], "ManifestMeta can == call")},
+                        --protocol = {get = FLESH.make.Artifact([[return function (self) end]], "ManifestMeta can protocol get")}, -- I'll need complex traversal logic for table -> Frame
+                        state = {get = FLESH.make.Artifact([[return function (self) return FLESH.make.Manifest(FLESH.NegI.Manifests.Native.state, self.state.state) end]], "ManifestMeta can state get")}, -- it is opaque, so Native it is
+                        back = {get = FLESH.make.Artifact([[return function (self) return self.state end]], "ManifestMeta can back get")}, -- not sure about it
+                    }
+                }),-- that's more like you pulled up an inspection tool, and this tool gives you this
             Protocol = FLESH.make.Manifest({ -- Protocol for new Protocols
                     can = {
-                        of = {call = FLESH.make.Artifact([[]])}, -- will return the protocol of some Manifest that could be used to check other Manifests 
+                        of = {call = FLESH.make.Artifact([[return function (self, arg) end]])}, -- will return the protocol of some Manifest that could be used to check other Manifests 
                         ["in"] = {call = capability_check}, -- capability_check is shared artifact
-                        ["="] = {call = FLESH.make.Artifact([[]])}
+                        ["="] = {call = FLESH.make.Artifact([[return function (self, arg) end]])}
                     },
-                    call = FLESH.make.Artifact([[]]), -- artifact for creating new protocol manifests
+                    call = FLESH.make.Artifact([[return function (self, arg) end]]), -- artifact for creating new protocol manifests
                 },{
                     ["in"] = capability_check
                 }),
@@ -625,13 +650,13 @@ return (function ()
                     
                 end]])
             },{}),
-            ["false"] = FLESH.make.Manifest("Number",0), -- sugar
-            ["true"] = FLESH.make.Manifest("Number",1), -- sugar
+            ["false"] = FLESH.make.Manifest(function () return FLESH.NegI.Manifests.Number.state end,0), -- sugar
+            ["true"] = FLESH.make.Manifest(function () return FLESH.NegI.Manifests.Number.state end,1), -- sugar
             gap = FLESH.make.Manifest({},{}), -- it's fine, that's how it should be
             Number = FLESH.make.Manifest({
                 can = {
                     ["in"] = {call = capability_check},
-                    ["="] = {call = FLESH.make.Artifact([[]])}
+                    ["="] = {call = FLESH.make.Artifact([[return function (self, arg) end]])}
                 }},{
                     can = {},
                     call = "stub"
@@ -639,7 +664,7 @@ return (function ()
             String = FLESH.make.Manifest({
                 can = {
                     ["in"] = {call = capability_check},
-                    ["="] = {call = FLESH.make.Artifact([[]])}
+                    ["="] = {call = FLESH.make.Artifact([[return function (self, arg) end]])}
                 }},{
                     can = {},
                     call = "stub"
@@ -647,7 +672,7 @@ return (function ()
             Label = FLESH.make.Manifest({ -- it's job is to represent a get query from KES to load manifests
                 can = {
                     ["in"] = {call = capability_check},
-                    ["="] = {call = FLESH.make.Artifact([[]])}
+                    ["="] = {call = FLESH.make.Artifact([[return function (self, arg) end]])}
                 }},{
                     can = {
                         [":"] = {get = FLESH.make.Artifact([[return function (self)
@@ -667,12 +692,12 @@ return (function ()
             Frame = FLESH.make.Manifest({
                 can = {
                     ["in"] = {call = capability_check},
-                    ["="] = {call = FLESH.make.Artifact([[]])}
+                    ["="] = {call = FLESH.make.Artifact([[return function (self, arg) end]])}
                 }},{
                     can = {
-                        --["+"] = {call = FLESH.make.Artifact([[]])},
-                        --["*"] = {call = FLESH.make.Artifact([[]])},
-                        --delta = {get = FLESH.make.Artifact([[]])},
+                        --["+"] = {call = FLESH.make.Artifact([[return function (self, arg) end]])},
+                        --["*"] = {call = FLESH.make.Artifact([[return function (self, arg) end]])},
+                        --delta = {get = FLESH.make.Artifact([[return function (self) end]])},
                         load = {get = FLESH.make.Artifact([[return function (self)
                             local labels, bindings = self.state.labels, self.state.bindings
                             for i,e in pairs(bindings) do
@@ -699,12 +724,12 @@ return (function ()
             Sequence = FLESH.make.Manifest({
                 can = {
                     ["in"] = {call = capability_check},
-                    ["="] = {call = FLESH.make.Artifact([[]])}
+                    ["="] = {call = FLESH.make.Artifact([[return function (self, arg) end]])}
                 }},{
                     can = {
-                        prods = {get = FLESH.make.Artifact([[]])}, -- in order to get raw data, @ must be used
-                        creturn = {get = FLESH.make.Artifact([[]])}, -- in order to get raw data, @ must be used
-                        introspect = {get = FLESH.make.Artifact([[]])}
+                        prods = {get = FLESH.make.Artifact([[return function (self) end]])}, -- in order to get raw data, @ must be used
+                        creturn = {get = FLESH.make.Artifact([[return function (self) end]])}, -- in order to get raw data, @ must be used
+                        introspect = {get = FLESH.make.Artifact([[return function (self) end]])}
                     },
                     call = FLESH.make.Artifact([[return function (self, arg)
                         local prods = self.state.prods
@@ -722,7 +747,7 @@ return (function ()
             Membrane = FLESH.make.Manifest({ -- represent the layers and how they affect environment
                 can = {
                     ["in"] = {call = capability_check},
-                    ["="] = {call = FLESH.make.Artifact([[]])}
+                    ["="] = {call = FLESH.make.Artifact([[return function (self, arg) end]])}
                 }
             },{
                 --get = FLESH.make.Artifact([[return function (self)
@@ -745,7 +770,7 @@ return (function ()
             Make = FLESH.make.Manifest({ -- aka [] or grounded (because push_layer will be grounded by default)
                 can = {
                     ["in"] = {call = capability_check},
-                    ["="] = {call = FLESH.make.Artifact([[]])}
+                    ["="] = {call = FLESH.make.Artifact([[return function (self, arg) end]])}
                 }
             },{
                 get = FLESH.make.Artifact([[return function (self)
@@ -759,7 +784,7 @@ return (function ()
             Quote = FLESH.make.Manifest({ -- aka {} or dynamic (because it will shift parent within isolation)
                 can = {
                     ["in"] = {call = capability_check},
-                    ["="] = {call = FLESH.make.Artifact([[]])}
+                    ["="] = {call = FLESH.make.Artifact([[return function (self, arg) end]])}
                 }
             },{
                 get = FLESH.make.Artifact([[return function (self)
@@ -773,7 +798,7 @@ return (function ()
             Contain = FLESH.make.Manifest({ -- aka () or isolated
                 can = {
                     ["in"] = {call = capability_check},
-                    ["="] = {call = FLESH.make.Artifact([[]])}
+                    ["="] = {call = FLESH.make.Artifact([[return function (self, arg) end]])}
                 }
             },{
                 get = FLESH.make.Artifact([[return function (self)
@@ -787,7 +812,7 @@ return (function ()
             Negotiation = FLESH.make.Manifest({ -- aka jusxtaposition
                 can = {
                     ["in"] = {call = capability_check},
-                    ["="] = {call = FLESH.make.Artifact([[]])}
+                    ["="] = {call = FLESH.make.Artifact([[return function (self, arg) end]])}
                 }},{
                     get = FLESH.make.Artifact([[return function (self)
                         -- resolve terms: we hold references in state, not data
@@ -814,7 +839,9 @@ return (function ()
                     full = {get = FLESH.make.Artifact([[return function (self) return FLESH.make.Manifest(FLESH.NegI.Manifests.Frame.state, FLESH.KES:view_snapshot(false)) end]])},
                 }
             },{}), -- not sure about naming
+            --Parser = {} -- I need to understand how should I make it, so the user can modify the axioms it uses 
         }
+        FLESH.make.unthunk()
 
         FLESH.Host = {}
         FLESH.Host.Types = { -- while it's a mapping table, OPHANIM fundamentally disagree with lua on type existance, so for example userdata can't be capchecked
@@ -942,11 +969,11 @@ return (function ()
                         ["="] = make_host_res_init("thread")
                 },{
                     can = {
-                        close = {get = FLESH.make.Artifact([[]])},
-                        isyieldable = {get = FLESH.make.Artifact([[]])},
-                        resume = {get = FLESH.make.Artifact([[]])},
-                        status = {get = FLESH.make.Artifact([[]])},
-                        wrap = {get = FLESH.make.Artifact([[]])},
+                        close = {get = FLESH.make.Artifact([[return function (self) end]])},
+                        isyieldable = {get = FLESH.make.Artifact([[return function (self) end]])},
+                        resume = {get = FLESH.make.Artifact([[return function (self) end]])},
+                        status = {get = FLESH.make.Artifact([[return function (self) end]])},
+                        wrap = {get = FLESH.make.Artifact([[return function (self) end]])},
                     }
                 }}),
             table = FLESH.make.Manifest({ -- this also somewhat capability wildcard, but the importer uses different protocol for table, if it's table isn't empty
@@ -1139,8 +1166,8 @@ return (function ()
                             local items = self.state.items
                             local labels = table.create and {lb=table.create(0,#items),bl=table.create(0,#items)} or {lb={},bl={}}
                             for i,e in ipairs(items) do 
-                                e = FLESH:dispatch(e); e = e or FLESH.NegI.Manifests.gap -- evaluation
-                                e = FLESH:dispatch(e); e = (e ~= FLESH.NegI.Manifests.gap) and e or nil -- get
+                                e = FLESH:dispatch(e); e = e or FLESH.NegI.Manifests.gap
+                                e = FLESH:dispatch(e); e = (e ~= FLESH.NegI.Manifests.gap) and e or nil
                                 if FLESH.KES:stage_reserved() then 
                                     FLESH.KES:stage_fill_reserve(e) else
                                     FLESH.KES:stage_entry(e) end end
