@@ -234,20 +234,18 @@ return (function ()
                         stage.e[stage_id] = {a={},r=nil,d=data} end -- a - aliases (holds both anonym bindings and label names), r - reserved (even nil might be the data, so we need to track this separately), d - data
                     return stage_id
                 end,
-                stage_alias = function (self, new_ref, stage_id)  -- when `ref` is present, it updates info that references existing entry
+                stage_alias = function (self, ref, stage_id)  -- when `ref` is present, it updates info that references existing entry
                     local stage = self.layers[#self.layers].s
                     if stage_id and stage_id > #stage.e then error("FLESH.KES:stage_alias - stage_id points to undefined entry.", 2) end
                     if stage_id then -- explicit abscense of stage_id, will make a new entry
-                        stage.e[stage_id].a[#stage.e[stage_id].a +1] = new_ref
+                        stage.e[stage_id].a[#stage.e[stage_id].a +1] = ref
                     else
                         stage_id = #stage.e+1
                         stage.r[#stage.r +1] = stage_id
-                        stage.e[stage_id] = {a={new_ref},r=#stage.r,d=nil} end -- a - aliases (holds both anonym bindings and label names), r - reserved (even nil might be the data, so we need to track this separately), d - data
-                    stage.a[new_ref] = stage_id -- label can point only to one place, we don't discourage user from that
+                        stage.e[stage_id] = {a={ref},r=#stage.r,d=nil} end -- a - aliases (holds both anonym bindings and label names), r - reserved (even nil might be the data, so we need to track this separately), d - data
+                    stage.a[ref] = stage_id -- label can point only to one place, we don't discourage user from that
                     return stage_id
                 end,
-                --stage_on_change = function (self)
-                --end,
                 stage_staged = function (self)
                     return #self.layers[#self.layers].s.e
                 end,
@@ -269,18 +267,21 @@ return (function ()
                     --pprint(self.layers[#self.layers].s.a)
                     local stage = self.layers[#self.layers].s
                     local wue = true and function (self, e)
-                        print("\t+ <anonymic>")
+                        --print("\t+ <anonymic>")
                         e.b[#e.b+1] = self:write_entry(nil, e.d)
                     end or function (self, e) end
                     for _, e in ipairs(stage.e) do
                         e.b = {}
                         if (#e.a > 0) then for _, name in ipairs(e.a) do
-                            print("\t+ "..name)
+                            --print("\t+ "..name)
                             e.b[#e.b+1] = self:write_entry(name, e.d) end
                         else wue(self, e) end end
                     local output = self.layers[#self.layers].s
                     self.layers[#self.layers].s = {a={},e={},r={}} -- a - aliases, e - entries, r - reserve
                     return output -- should be a map of entry -> binding, but for now it's fine
+                end,
+                stage_clear = function (self)
+                    self.layers[#self.layers].s = {a={},e={},r={}} -- a - aliases, e - entries, r - reserve
                 end,
                 direct_snapshot = function (self, layer_id, frame_state) -- THIS IS RAW AUTHORITY THAT VOIDS SECURITY GUARANTEES
                     frame_state = frame_state or {labels = {lb={},bl={}}, bindings = {}} -- when provided, pours effects directly
@@ -385,7 +386,7 @@ return (function ()
                             local artifact_p = self.NegI.Manifests.Artifact
                             local frame_p = self.NegI.Manifests.Frame
                             local clause = protocol.get
-                            if not clause.state then pprint(clause) end
+                            --if not clause.state then pprint(clause) end
                             local fabk = self.capcheck(artifact_p, clause) and
                                 (clause.state.artifact(lterm) or self.NegI.Manifests.gap) or self:dispatch(clause, lterm)
                             return self:dispatch(fabk, rterm)
@@ -828,11 +829,16 @@ return (function ()
                 }
             },{
                 get = FLESH.make.Artifact([[return function (self)
-                    return self.state and FLESH.make.Manifest(FLESH.NegI.Manifests.Membrane.state, {
-                        parent = FLESH.KES:get_context(),
-                        contain = false,
-                        quoted = false,
-                        content = FLESH:dispatch(self.state)}) or FLESH.NegI.Manifests.gap
+                    if self.state then
+                        FLESH.KES:push_layer(FLESH.KES:get_context())
+                        local e = FLESH:dispatch(self.state)
+                        FLESH.KES:pop_layer()
+                        return FLESH.make.Manifest(FLESH.NegI.Manifests.Membrane.state, {
+                            parent = FLESH.KES:get_context(),
+                            contain = false,
+                            quoted = false,
+                            content = e})
+                    else return FLESH.NegI.Manifests.gap end
                 end]], "Make get")
             }),
             Quote = FLESH.make.Manifest({ -- aka {} or dynamic (because it will shift parent within isolation)
@@ -856,11 +862,16 @@ return (function ()
                 }
             },{
                 get = FLESH.make.Artifact([[return function (self)
-                    return self.state and FLESH.make.Manifest(FLESH.NegI.Manifests.Membrane.state, {
-                        parent = FLESH.KES:get_context(),
-                        contain = true,
-                        quoted = false,
-                        content = FLESH:dispatch(self.state)}) or FLESH.NegI.Manifests.gap
+                    if self.state then
+                        FLESH.KES:push_layer(FLESH.KES:get_context(), true)
+                        local e = FLESH:dispatch(self.state)
+                        FLESH.KES:pop_layer()
+                        return FLESH.make.Manifest(FLESH.NegI.Manifests.Membrane.state, {
+                            parent = FLESH.KES:get_context(),
+                            contain = false,
+                            quoted = false,
+                            content = e})
+                    else return FLESH.NegI.Manifests.gap end
                 end]], "Contain get")
             }),
             Negotiation = FLESH.make.Manifest({ -- aka jusxtaposition
@@ -1155,8 +1166,9 @@ return (function ()
 
         FLESH.NegI.Intrinsincs = { -- shared code between Manifests for optimization reasons, because these are tightly coupled anyways
             frame_index = function (frame_state, query)
-                pprint(frame_state.bindings)
+                --pprint(frame_state.bindings)
                 if type(query) == "string" then query = frame_state.labels.lb[query] end
+                if type(query) ~= "number" then error("expected number or string", 2) end
                 local binding = frame_state.bindings[query]
                 return binding and (binding.parent and binding.parent[binding.delta] or binding.delta) or nil
             end,
