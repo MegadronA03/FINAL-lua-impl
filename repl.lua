@@ -6,27 +6,29 @@ local OState = ophanim.newstate()
 OState.pprint = pprint
 
 local quote_test = function ()
-    io.write("testing quoting:\t")
-    return OState:dispatch(OState.NegI.parse([[[a:1; b:{;a}; [a:55;b()][] ][] ]])).state == 55
+    io.write("testing quoting (55):\t")
+    return OState:dispatch(OState.NegI.parse([[[a:1; b:{;a}; [a:55;b()][] ][] ]])).state
 end
 local contain_test = function ()
-    io.write("testing isolation:\t")
-    return OState:dispatch(OState.NegI.parse([[[a:1; b:{;a}; (a:55;b())[] ][] ]])).state == 1
+    io.write("testing isolation (1):\t")
+    return OState:dispatch(OState.NegI.parse([[[a:1; b:{;a}; (a:55;b())[] ][] ]])).state
 end
 local grounding_test = function ()
-    io.write("testing grounding:\t")
-    return OState:dispatch(OState.NegI.parse([[[a:1; b:[;a]; [a:55;b()][] ][] ]])).state == 1
+    io.write("testing grounding (1):\t")
+    return OState:dispatch(OState.NegI.parse([[[a:1; b:[;a]; [a:55;b()][] ][] ]])).state
 end
 local labeling_test = function ()
-    io.write("testing labeling:\t")
-    return OState:dispatch(OState.NegI.parse([[ [a : 2; a : 3; a][] ]])).state == 3
+    io.write("testing labeling (3):\t")
+    return OState:dispatch(OState.NegI.parse([[ [a : 2; a : 3; a][] ]])).state
 end
 
 print("LOADING=========================================================")
---pprint(contain_test())
---pprint(quote_test())
---pprint(grounding_test())
---pprint(labeling_test())
+--ldbg(false)
+pprint(contain_test())
+pprint(quote_test())
+pprint(grounding_test())
+pprint(labeling_test())
+--ldbg(true)
 print("NegI REPL v0.0.1 (Pre-Alpha)====================================")
 
 OState.KES:write_entry("REPL", OState.make.Manifest({ -- we describle REPL authority here, instead of using arbitrary commands
@@ -50,7 +52,7 @@ while true do
         e = OState:dispatch(e); e = (e ~= OState.NegI.Manifests.gap) and e or nil -- get
         OState.KES:stage_fill_reserve(e)
         OState.KES:commit()
-        pprint(e)
+        pprint((e or {}).state)
     end
 end
 OState.KES:pop_layer()
