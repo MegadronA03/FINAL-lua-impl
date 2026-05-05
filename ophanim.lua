@@ -7,7 +7,7 @@ return (function ()
     --Frontend: NegI - Negotiation Interface/Negate Identity (the interface, what is developed, that's the front name)
     --Backend: OPHANIM - Ontological Polymorphic Host for Authority and Negotiation Interface Management (the substrate, NegI implementation)
     local pprint = require("pprint") -- remove after fixing problems
-    local ldbg = require("lua_utils/debugger")
+    --local ldbg = require("lua_utils/debugger")
     --local ltr = require("luatrace") -- remove after fixing problems
     -- This works more or less as ship of thesus, OPHANIM provides common interfaces for other manifests to communicate with each other in platform agnostic way
     local newstate = function () -- something similar to lua_newstate but for OPHANIM
@@ -592,7 +592,7 @@ return (function ()
 
             -- temporarely here for debug purposes
             pprint = pprint,
-            ldbg = ldbg,
+            --ldbg = ldbg,
         }
 
         FLESH.make.Artifact = function (chunk, chunkname, mode)
